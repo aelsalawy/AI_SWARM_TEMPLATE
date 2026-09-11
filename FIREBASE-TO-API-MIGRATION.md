@@ -63,7 +63,7 @@ The ALM system has been migrated from Firebase Auth to Local Auth (PostgreSQL + 
 
 - Backend: `./server/`
 - Frontend: `./src/`
-- Database: `postgresql://postgres:password@76.13.151.30:5434/alm_auth_db?schema=public`
+- Database: `[REDACTED]`
 - Production URL: https://alm.swarmbuzz.online/
 - Agent API Key: [REDACTED]
 
