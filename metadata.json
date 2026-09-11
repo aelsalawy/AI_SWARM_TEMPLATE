@@ -1,0 +1,6 @@
+{
+  "name": "Swarm Orchestrator",
+  "description": "A high-performance AI Swarm Application Lifecycle Management (ALM) dashboard for monitoring their tasks, and testing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

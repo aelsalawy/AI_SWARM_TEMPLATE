@@ -1,0 +1,606 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                 String        @id @default(cuid())
+  email              String        @unique
+  passwordHash       String?
+  googleId           String?       @unique
+  authProvider       String        @default("local") // "local" | "google"
+  role               UserRole      @default(cashier)
+  tenantId           String?
+  status             AccountStatus @default(active)
+  permissions        String[]      @default([])
+  firstName          String        @default("")
+  lastName           String        @default("")
+  phone              String?
+  avatar             String?
+  signature          String?
+  theme              String        @default("light")
+  language           String        @default("en")
+  currency           String        @default("USD")
+  timezone           String        @default("UTC")
+  dateFormat         String        @default("YYYY-MM-DD")
+  emailNotifications Boolean       @default(true)
+  pushNotifications  Boolean       @default(true)
+  smsNotifications   Boolean       @default(false)
+  lastLogin          DateTime?
+  loginAttempts      Int           @default(0)
+  lockedUntil        DateTime?
+  resetToken         String?       @unique
+  resetTokenExpiry   DateTime?
+  forcePasswordChange Boolean       @default(false)
+  twoFactorEnabled   Boolean       @default(false)
+  twoFactorSecret    String?
+  emailVerified      Boolean       @default(false)
+  verifyToken        String?       @unique
+  verifyTokenExpiry  DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
+
+  notifications      Notification[]
+
+  @@index([email])
+  @@index([tenantId])
+  @@index([role])
+  @@map("users")
+}
+
+model LoginHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  ip        String
+  device    String
+  userAgent String
+  timestamp DateTime @default(now())
+
+  @@index([userId])
+  @@map("login_history")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Project {
+  id          String          @id @default(cuid())
+  name        String
+  description String          @default("")
+  status      ProjectStatus   @default(Active)
+  ownerId     String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  bugs        Bug[]
+  members     ProjectMember[]
+  sprints     Sprint[]
+  releases    Release[]
+  tasks       Task[]
+  requirements Requirement[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String  @id @default(cuid())
+  projectId String
+  userId    String
+  role      String  @default("member")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model Task {
+  id              String        @id @default(cuid())
+  title           String
+  description     String?
+  status          TaskStatus    @default(TODO)
+  priority        TaskPriority  @default(Medium)
+  epic            String?
+  assignedAgentId String?
+  projectId       String?
+  ownerId         String
+  createdById     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  requirements    Requirement[]
+  history         TaskHistory[]
+  comments        TaskComment[]
+  tags            String[]      @default([])
+  sprintId        String?
+  release         String?
+  project         Project?      @relation(fields: [projectId], references: [id])
+  sprint          Sprint?       @relation(fields: [sprintId], references: [id])
+  requirementTasks RequirementTask[]
+
+  @@index([ownerId])
+  @@index([projectId])
+  @@index([status])
+  @@index([assignedAgentId])
+  @@index([priority])
+  @@index([sprintId])
+  @@map("tasks")
+}
+
+model TaskHistory {
+  id        String   @id @default(cuid())
+  taskId    String
+  field     String
+  fromValue String?
+  toValue   String?
+  changedBy String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id])
+
+  @@index([taskId])
+  @@map("task_history")
+}
+
+model Agent {
+  id             String      @id @default(cuid())
+  name           String
+  email          String?
+  emoji          String?
+  role           String?
+  status         AgentStatus @default(offline)
+  currentTaskId  String?
+  lastHeartbeat  DateTime?
+  ownerId        String
+  activeTasks    Int         @default(0)
+  completionRate Float       @default(0)
+  skills         String[]    @default([])
+  model          String?
+  tags           String[]    @default([])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  bugs           Bug[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@map("agents")
+}
+
+model Bug {
+  id              String       @id @default(cuid())
+  title           String
+  description     String?
+  priority        BugPriority  @default(Medium)
+  status          BugStatus    @default(Open)
+  severity        String?
+  stepsToReproduce String?
+  expectedBehavior String?
+  actualBehavior  String?
+  environment     String?
+  assignedAgentId String?
+  projectId       String?
+  ownerId         String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  comments        BugComment[]
+  history         BugHistory[]
+  attachments     BugAttachment[]
+  tags            String[]      @default([])
+  sprintId        String?
+  release         String?
+  agent           Agent?        @relation(fields: [assignedAgentId], references: [id])
+  project         Project?      @relation(fields: [projectId], references: [id])
+  sprint          Sprint?       @relation(fields: [sprintId], references: [id])
+  requirementBugs RequirementBug[]
+  testRunBugs     TestRunBug[]
+
+  @@index([ownerId])
+  @@index([projectId])
+  @@index([status])
+  @@index([sprintId])
+  @@map("bugs")
+}
+
+model BugComment {
+  id          String   @id @default(cuid())
+  bugId       String
+  body        String
+  authorId    String?
+  authorName  String?
+  authorEmoji String?
+  createdAt   DateTime @default(now())
+  bug         Bug      @relation(fields: [bugId], references: [id])
+
+  @@index([bugId])
+  @@map("bug_comments")
+}
+
+model BugAttachment {
+  id          String   @id @default(cuid())
+  bugId       String
+  filename    String
+  mimeType    String
+  size        Int
+  storageType String   @default("base64")
+  data        String
+  uploadedBy  String?
+  createdAt   DateTime @default(now())
+  bug         Bug      @relation(fields: [bugId], references: [id])
+
+  @@index([bugId])
+  @@map("bug_attachments")
+}
+
+model BugHistory {
+  id        String   @id @default(cuid())
+  bugId     String
+  field     String
+  fromValue String?
+  toValue   String?
+  changedBy String
+  createdAt DateTime @default(now())
+  bug       Bug      @relation(fields: [bugId], references: [id])
+
+  @@index([bugId])
+  @@map("bug_history")
+}
+
+model TaskComment {
+  id          String   @id @default(cuid())
+  taskId      String
+  body        String
+  authorId    String?
+  authorName  String?
+  authorEmoji String?
+  createdAt   DateTime @default(now())
+  task        Task     @relation(fields: [taskId], references: [id])
+
+  @@index([taskId])
+  @@map("task_comments")
+}
+
+model TestRun {
+  id          String    @id @default(cuid())
+  name        String
+  runId       String?
+  group       String?
+  status      RunStatus @default(Pending)
+  duration    String?
+  color       String?
+  agentGroup  String?
+  testType    String?
+  priority    String?
+  description String?
+  ownerId     String
+  projectId   String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  bugs        TestRunBug[]
+
+  @@index([ownerId])
+  @@index([projectId])
+  @@index([status])
+  @@map("test_runs")
+}
+
+model Sprint {
+  id        String       @id @default(cuid())
+  name      String
+  projectId String
+  goal      String
+  status    SprintStatus @default(Planning)
+  startDate DateTime?
+  endDate   DateTime?
+  ownerId   String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  project   Project      @relation(fields: [projectId], references: [id])
+  tasks     Task[]
+  bugs      Bug[]
+  requirements Requirement[]
+
+  @@index([projectId])
+  @@index([status])
+  @@map("sprints")
+}
+
+// R3: per-project release registry. Release stays a free string on items
+// (backward compat) — this table only powers the admin Sprints & Releases view
+// and the release dropdown suggestions in create/edit surfaces.
+model Release {
+  id        String   @id @default(cuid())
+  projectId String?
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("releases")
+}
+
+model Requirement {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  status      RequirementStatus @default(Pending)
+  taskId      String?
+  ownerId     String
+  projectId   String?
+  sprintId    String?
+  release     String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  task        Task?             @relation(fields: [taskId], references: [id])
+  project     Project?          @relation(fields: [projectId], references: [id])
+  sprint      Sprint?           @relation(fields: [sprintId], references: [id])
+  tasks       RequirementTask[]
+  bugs        RequirementBug[]
+
+  @@index([taskId])
+  @@index([ownerId])
+  @@index([projectId])
+  @@index([sprintId])
+  @@map("requirements")
+}
+
+model RequirementTask {
+  id            String       @id @default(cuid())
+  requirementId String
+  taskId        String
+  requirement   Requirement  @relation(fields: [requirementId], references: [id])
+  task          Task         @relation(fields: [taskId], references: [id])
+
+  @@unique([requirementId, taskId])
+  @@map("requirement_tasks")
+}
+
+model RequirementBug {
+  id            String       @id @default(cuid())
+  requirementId String
+  bugId         String
+  requirement   Requirement  @relation(fields: [requirementId], references: [id])
+  bug           Bug          @relation(fields: [bugId], references: [id])
+
+  @@unique([requirementId, bugId])
+  @@map("requirement_bugs")
+}
+
+model TestRunBug {
+  id        String   @id @default(cuid())
+  testRunId String
+  bugId     String
+  testRun   TestRun  @relation(fields: [testRunId], references: [id])
+  bug       Bug      @relation(fields: [bugId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([testRunId, bugId])
+  @@index([testRunId])
+  @@index([bugId])
+  @@map("test_run_bugs")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String
+  changes    Json?
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AgentSkill {
+  id          String   @id @default(cuid())
+  name        String
+  type        String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("agent_skills")
+}
+
+model AgentChat {
+  id        String   @id @default(cuid())
+  agentId   String
+  userId    String
+  message   String
+  role      String   @default("user") // "user" or "agent"
+  createdAt DateTime @default(now())
+
+  @@index([agentId])
+  @@index([userId])
+  @@index([agentId, createdAt])
+  @@map("agent_chats")
+}
+
+model AgentKey {
+  id         String    @id @default(cuid())
+  agentId    String
+  name       String?
+  keyHash    String    @unique
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([agentId])
+  @@map("agent_keys")
+}
+
+// Agent Dispatch v1 (docs/agent-trigger-assessment.md §8.2/§8.4):
+// Assignment-triggered agent spawning — PM-mediated dispatch (CEO direction).
+// One row per (agent, item) assignment; carries the PM review lifecycle (pmState)
+// and the assignee spawn lifecycle (wakeState). The unique key is the structural
+// storm guard: re-assigning the same item to the same agent upserts, never double-spawns.
+model AgentDispatch {
+  id               String    @id @default(cuid())
+  agentId          String // assignee
+  itemType         String // 'task' | 'bug' | 'requirement'
+  itemId           String
+  initiatedBy      String    @default("alm") // 'alm' (direct mode) | 'pm' (PM-mediated) | 'admin' (v1.1 retry)
+  pmState          String    @default("skipped") // skipped | pending | notified | failed | stuck | done | cancelled
+  pmSessionId      String? // gateway session id once the PM review wake is accepted
+  pmNotifiedAt     DateTime?
+  pmActedAt        DateTime?
+  pmNudges         Int       @default(0)
+  wakeState        String    @default("pending") // assignee spawn: pending | sent | failed | stuck | cancelled
+  wakeAttempts     Int       @default(0)
+  lastWakeError    String?
+  gatewaySessionId String? // gateway session id once the assignee spawn is accepted
+  spawnedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([agentId, itemType, itemId])
+  @@index([wakeState])
+  @@index([pmState])
+  @@map("agent_dispatches")
+}
+
+// R2-8: lightweight per-agent request telemetry (agentId, endpoint, latencyMs, createdAt).
+// Appended only — no existing blocks reordered or reformatted.
+model AgentTelemetry {
+  id        String   @id @default(cuid())
+  agentId   String
+  endpoint  String
+  latencyMs Int
+  createdAt DateTime @default(now())
+
+  @@index([agentId])
+  @@index([agentId, createdAt])
+  @@map("agent_telemetry")
+}
+
+model Deployment {
+  id          String   @id @default(cuid())
+  status      String   @default("triggered") // "triggered", "running", "completed", "failed"
+  triggeredBy String
+  summary     Json
+  projectId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([triggeredBy])
+  @@index([projectId])
+  @@index([status])
+  @@map("deployments")
+}
+
+enum UserRole {
+  super_admin
+  manager
+  admin
+  cashier
+  developer
+}
+
+enum AccountStatus {
+  active
+  inactive
+  suspended
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+enum TaskPriority {
+  Low
+  Medium
+  High
+  Urgent
+}
+
+enum BugStatus {
+  Open
+  In_Progress
+  Resolved
+  Closed
+}
+
+enum BugPriority {
+  Low
+  Medium
+  High
+  Critical
+}
+
+enum RequirementStatus {
+  Pending
+  Verified
+}
+
+enum RunStatus {
+  Passed
+  Failed
+  Skipped
+  Pending
+}
+
+enum ProjectStatus {
+  Active
+  Archived
+}
+
+enum SprintStatus {
+  Planning
+  Active
+  Completed
+  Cancelled
+}
+
+enum AgentStatus {
+  online
+  offline
+  busy
+  idle
+}
+
+enum NotificationType {
+  info
+  warning
+  success
+  error
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType @default(info)
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  actionUrl String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
+}

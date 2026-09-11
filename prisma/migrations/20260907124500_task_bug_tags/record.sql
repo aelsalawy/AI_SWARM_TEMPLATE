@@ -1,0 +1,1 @@
+INSERT INTO "_prisma_migrations" (id, checksum, finished_at, migration_name, started_at, applied_steps_count) VALUES ('9f2c1a4e-77b2-4d61-b9a3-202609071245', 'manual-cto-r2-9-task-bug-tags', now(), '20260907124500_task_bug_tags', now(), 1);

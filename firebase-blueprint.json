@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "Task": {
+      "title": "Agent Task",
+      "description": "A task assigned to a swarm agent",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["To Do", "In Progress", "Review", "Done"] },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High", "Urgent"] },
+        "due": { "type": "string" },
+        "agents": { "type": "array" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "status", "priority", "ownerId"]
+    },
+    "Run": {
+      "title": "Test Run",
+      "description": "Historical test execution record",
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string" },
+        "group": { "type": "string" },
+        "duration": { "type": "string" },
+        "status": { "type": "string", "enum": ["Passed", "Failed", "Skipped"] },
+        "color": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["runId", "group", "status"]
+    },
+    "Repo": {
+      "title": "Repository",
+      "description": "Connected GitHub repository",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "branch": { "type": "string" },
+        "active": { "type": "boolean" },
+        "lastUpdate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "url"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "System user profiles and roles",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Agent", "Observer"] },
+        "lastLive": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "tasks": {
+      "schema": "Task",
+      "description": "Collection of all agent tasks"
+    },
+    "runs": {
+      "schema": "Run",
+      "description": "Collection of test run history"
+    },
+    "repos": {
+      "schema": "Repo",
+      "description": "Connected repositories"
+    },
+    "users": {
+      "schema": "User",
+      "description": "System users"
+    }
+  }
+}

@@ -1,0 +1,75 @@
+◇ injected env (11) from AI_SWARM_ALM/.env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+[
+  {
+    "id": "cmstcr7sh0009m3lcoy8y2i67",
+    "title": "P1-1: Account lifecycle management",
+    "priority": "High",
+    "epic": "P1: Core ALM",
+    "status": "TODO",
+    "assignedAgentId": "agent:almdev"
+  },
+  {
+    "id": "cmstcr7sv000cm3lcaarqkwko",
+    "title": "P1-2: Password reset flow",
+    "priority": "High",
+    "epic": "P1: Core ALM",
+    "status": "TODO",
+    "assignedAgentId": "agent:almdev"
+  },
+  {
+    "id": "cmstcr7t5000fm3lcz69wtayu",
+    "title": "P1-3: DB migration rollback strategy",
+    "priority": "High",
+    "epic": "P1: Core ALM",
+    "status": "TODO",
+    "assignedAgentId": "agent:almdev"
+  },
+  {
+    "id": "cmstcr7th000im3lcnotxd08s",
+    "title": "P1-4: Test Runs ↔ Bugs: schema + relations",
+    "priority": "High",
+    "epic": "P1: Core ALM",
+    "status": "TODO",
+    "assignedAgentId": "agent:almdev"
+  },
+  {
+    "id": "cmstcr7tx000lm3lcbgeup9xn",
+    "title": "P1-5: Test Runs: CI hook + auto-file bugs",
+    "priority": "High",
+    "epic": "P1: Core ALM",
+    "status": "TODO",
+    "assignedAgentId": "agent:dev"
+  },
+  {
+    "id": "cmstcr7um000rm3lcil8bfv2i",
+    "title": "P2-1: DECISION — Workflow engine: implement rule loading or remove",
+    "priority": "High",
+    "epic": "P2: Swarm Intelligence",
+    "status": "TODO",
+    "assignedAgentId": "agent:cto"
+  },
+  {
+    "id": "cmstcr7v4000xm3lczyi1o51k",
+    "title": "P2-3: Notifications MVP (in-app inbox)",
+    "priority": "Medium",
+    "epic": "P2: Swarm Intelligence",
+    "status": "TODO",
+    "assignedAgentId": "agent:dev"
+  },
+  {
+    "id": "cmstcr7uw000um3lckjyvkll6",
+    "title": "P2-2: Agent workload dashboard + auto-assignment",
+    "priority": "Medium",
+    "epic": "P2: Swarm Intelligence",
+    "status": "TODO",
+    "assignedAgentId": "agent:uidev"
+  },
+  {
+    "id": "cmstcr7ua000om3lcyjzek0wm",
+    "title": "P1-6: Test Runs: test plans per sprint + pass-rate trends",
+    "priority": "Medium",
+    "epic": "P1: Core ALM",
+    "status": "TODO",
+    "assignedAgentId": "agent:uidev"
+  }
+]

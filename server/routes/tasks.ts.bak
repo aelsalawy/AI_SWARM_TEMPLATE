@@ -1,0 +1,314 @@
+import { Router, Request, Response } from 'express';
+import { db, firebaseReady } from '../firebase-admin';
+import { Timestamp, type Query } from 'firebase-admin/firestore';
+
+const router = Router();
+
+// Demo data for when Firebase is not connected
+const demoTasks: any[] = [];
+
+// GET /api/tasks - list all tasks with optional filters
+router.get('/', async (req: Request, res: Response) => {
+  if (!firebaseReady || !db) {
+    return res.json(demoTasks);
+  }
+  try {
+    let query: Query = db.collection('tasks');
+    
+    // Apply filters
+    if (req.query.status) {
+      query = query.where('status', '==', req.query.status);
+    }
+    if (req.query.assignedAgentId) {
+      query = query.where('assignedAgentId', '==', req.query.assignedAgentId);
+    }
+    if (req.query.epic) {
+      query = query.where('epic', '==', req.query.epic);
+    }
+    
+    const snapshot = await query.get();
+    const tasks = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    res.json(tasks);
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ message: 'Failed to fetch tasks' });
+  }
+});
+
+// GET /api/tasks/:id - get single task with history
+router.get('/:id', async (req: Request, res: Response) => {
+  if (!firebaseReady || !db) {
+    return res.status(404).json({ message: 'Task not found (demo mode)' });
+  }
+  try {
+    const doc = await db.collection('tasks').doc(req.params.id).get();
+    
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    
+    res.json({
+      id: doc.id,
+      ...doc.data()
+    });
+  } catch (error) {
+    console.error('Error fetching task:', error);
+    res.status(500).json({ message: 'Failed to fetch task' });
+  }
+});
+
+// POST /api/tasks - create task
+router.post('/', async (req: Request, res: Response) => {
+  // Input validation (before Firebase check so 400 works in demo mode)
+  const { title, status } = req.body;
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    return res.status(400).json({ message: 'Field "title" is required and must be a non-empty string.' });
+  }
+  if (status !== undefined && typeof status !== 'string') {
+    return res.status(400).json({ message: 'Field "status" must be a string if provided.' });
+  }
+  if (!firebaseReady || !db) {
+    return res.status(503).json({ message: 'Firebase not connected. Cannot create tasks in demo mode.' });
+  }
+  try {
+    const taskData = {
+      ...req.body,
+      ownerId: req.body.ownerId || process.env.DEFAULT_OWNER_ID || undefined,
+      projectId: req.body.projectId || process.env.DEFAULT_PROJECT_ID || undefined,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+      history: [],
+      comments: [],
+      requirementIds: req.body.requirementIds || [],
+      testCaseIds: req.body.testCaseIds || []
+    };
+    // Remove undefined fields so Firestore doesn't store null
+    Object.keys(taskData).forEach(key => taskData[key] === undefined && delete taskData[key]);
+    
+    const docRef = await db.collection('tasks').add(taskData);
+    
+    // Create audit log entry
+    await db.collection('audit_log').add({
+      action: 'CREATE',
+      entityId: docRef.id,
+      entityType: 'task',
+      timestamp: Timestamp.now(),
+      changes: taskData,
+      userId: (req as any).user?.uid || req.body.createdBy || 'system'
+    });
+    
+    res.status(201).json({ id: docRef.id, ...taskData });
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(500).json({ message: 'Failed to create task' });
+  }
+});
+
+// PATCH /api/tasks/:id - update task
+router.patch('/:id', async (req: Request, res: Response) => {
+  // Input validation (before Firebase check so 400 works in demo mode)
+  if (!req.body || Object.keys(req.body).length === 0) {
+    return res.status(400).json({ message: 'Request body must contain at least one field to update.' });
+  }
+  if (!firebaseReady || !db) {
+    return res.status(503).json({ message: 'Firebase not connected. Cannot update tasks in demo mode.' });
+  }
+  try {
+    const taskRef = db.collection('tasks').doc(req.params.id);
+    const taskDoc = await taskRef.get();
+    
+    if (!taskDoc.exists) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    
+    const currentData = taskDoc.data();
+    const updateData = {
+      ...req.body,
+      updatedAt: Timestamp.now()
+    };
+    
+    // Create history entry for changes
+    const historyEntry = {
+      from: currentData,
+      to: updateData,
+      field: Object.keys(req.body)[0],
+      changedBy: req.body.changedBy || 'system',
+      timestamp: Timestamp.now()
+    };
+    
+    // Update task with new data and add to history (capped at 50 entries)
+    const updatedHistory = [...(currentData?.history || []), historyEntry];
+    const cappedHistory = updatedHistory.length > 50
+      ? updatedHistory.slice(-50)
+      : updatedHistory;
+
+    await taskRef.update({
+      ...updateData,
+      history: cappedHistory
+    });
+    
+    // Create audit log entry
+    await db.collection('audit_log').add({
+      action: 'UPDATE',
+      entityId: req.params.id,
+      entityType: 'task',
+      timestamp: Timestamp.now(),
+      changes: updateData,
+      userId: req.body.changedBy || 'system'
+    });
+    
+    const updatedDoc = await taskRef.get();
+    res.json({
+      id: updatedDoc.id,
+      ...updatedDoc.data()
+    });
+  } catch (error) {
+    console.error('Error updating task:', error);
+    res.status(500).json({ message: 'Failed to update task' });
+  }
+});
+
+// POST /api/tasks/:id/claim - agent claims a task
+router.post('/:id/claim', async (req: Request, res: Response) => {
+  const { agentId } = req.body;
+
+  if (!agentId || typeof agentId !== 'string') {
+    return res.status(400).json({ message: 'Field "agentId" is required and must be a string.' });
+  }
+  if (!firebaseReady || !db) {
+    return res.status(503).json({ message: 'Firebase not connected. Cannot claim tasks in demo mode.' });
+  }
+  try {
+    const taskRef = db.collection('tasks').doc(req.params.id);
+
+    // Use transaction to prevent double-claiming
+    await db.runTransaction(async (transaction) => {
+      const taskDoc = await transaction.get(taskRef);
+
+      if (!taskDoc.exists) {
+        throw new Error('NOT_FOUND');
+      }
+
+      const taskData = taskDoc.data();
+
+      // Check if already assigned to a different agent
+      if (taskData.assignedAgentId && taskData.assignedAgentId !== agentId) {
+        throw new Error('ALREADY_ASSIGNED');
+      }
+
+      const currentHistory = taskData.history || [];
+      const historyEntry = {
+        action: 'claimed',
+        agentId,
+        timestamp: Timestamp.now()
+      };
+      const updatedHistory = [...currentHistory, historyEntry].slice(-50);
+
+      transaction.update(taskRef, {
+        assignedAgentId: agentId,
+        status: 'In Progress',
+        updatedAt: Timestamp.now(),
+        history: updatedHistory
+      });
+    });
+
+    const updatedDoc = await taskRef.get();
+    res.json({
+      id: updatedDoc.id,
+      ...updatedDoc.data()
+    });
+  } catch (error: any) {
+    if (error.message === 'NOT_FOUND') {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    if (error.message === 'ALREADY_ASSIGNED') {
+      return res.status(409).json({ message: 'Task is already assigned to another agent' });
+    }
+    console.error('Error claiming task:', error);
+    res.status(500).json({ message: 'Failed to claim task' });
+  }
+});
+
+// POST /api/tasks/:id/release - agent releases a task
+router.post('/:id/release', async (req: Request, res: Response) => {
+  const { agentId } = req.body;
+
+  if (!agentId || typeof agentId !== 'string') {
+    return res.status(400).json({ message: 'Field "agentId" is required and must be a string.' });
+  }
+  if (!firebaseReady || !db) {
+    return res.status(503).json({ message: 'Firebase not connected. Cannot release tasks in demo mode.' });
+  }
+  try {
+    const taskRef = db.collection('tasks').doc(req.params.id);
+    const taskDoc = await taskRef.get();
+
+    if (!taskDoc.exists) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    const taskData = taskDoc.data();
+    const currentHistory = taskData.history || [];
+    const historyEntry = {
+      action: 'released',
+      agentId,
+      timestamp: Timestamp.now()
+    };
+    const updatedHistory = [...currentHistory, historyEntry].slice(-50);
+
+    await taskRef.update({
+      assignedAgentId: null,
+      status: 'To Do',
+      updatedAt: Timestamp.now(),
+      history: updatedHistory
+    });
+
+    const updatedDoc = await taskRef.get();
+    res.json({
+      id: updatedDoc.id,
+      ...updatedDoc.data()
+    });
+  } catch (error) {
+    console.error('Error releasing task:', error);
+    res.status(500).json({ message: 'Failed to release task' });
+  }
+});
+
+// DELETE /api/tasks/:id - delete task
+router.delete('/:id', async (req: Request, res: Response) => {
+  if (!firebaseReady || !db) {
+    return res.status(503).json({ message: 'Firebase not connected. Cannot delete tasks in demo mode.' });
+  }
+  try {
+    const taskRef = db.collection('tasks').doc(req.params.id);
+    const taskDoc = await taskRef.get();
+    
+    if (!taskDoc.exists) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    
+    const taskData = taskDoc.data();
+    await taskRef.delete();
+    
+    // Create audit log entry
+    await db.collection('audit_log').add({
+      action: 'DELETE',
+      entityId: req.params.id,
+      entityType: 'task',
+      timestamp: Timestamp.now(),
+      changes: taskData,
+      userId: 'system'
+    });
+    
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    res.status(500).json({ message: 'Failed to delete task' });
+  }
+});
+
+export default router;

@@ -1,0 +1,506 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "description": "Example workflow rules for Autonomous Swarm ALM",
+    "lastUpdated": "2026-05-14T22:31:00Z",
+    "totalRules": 8
+  },
+  
+  "rules": [
+    {
+      "id": "task-creation-auto-assignment",
+      "name": "New Task Auto-Assignment",
+      "description": "Automatically assign new tasks to available agents based on skill matching",
+      "enabled": true,
+      "priority": 5,
+      
+      "trigger": {
+        "eventType": "task.created",
+        "conditions": [
+          {
+            "field": "status",
+            "operator": "equals",
+            "value": "To Do"
+          },
+          {
+            "field": "autoAssign",
+            "operator": "equals",
+            "value": true
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "assign_agent",
+          "params": {
+            "taskPriority": "{{event.payload.priority}}"
+          },
+          "delay": 1000
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": false,
+        "stopOnFailure": true,
+        "maxRetries": 3
+      }
+    },
+    
+    {
+      "id": "high-priority-escalation",
+      "name": "High Priority Task Escalation",
+      "description": "Escalate high-priority tasks that remain unassigned for more than 30 minutes",
+      "enabled": true,
+      "priority": 10,
+      
+      "trigger": {
+        "eventType": "task.created",
+        "conditions": [
+          {
+            "field": "priority",
+            "operator": "in",
+            "value": ["High", "Urgent"]
+          },
+          {
+            "field": "status",
+            "operator": "equals",
+            "value": "To Do"
+          },
+          {
+            "field": "createdAt",
+            "operator": "lt",
+            "value": "{{now - 1800000}}"
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "update_task",
+          "params": {
+            "taskId": "{{event.payload.id}}",
+            "updates": {
+              "status": "Escalated",
+              "escalationReason": "High priority task unassigned for 30+ minutes"
+            }
+          }
+        },
+        {
+          "type": "notify",
+          "params": {
+            "message": "High priority task requires immediate attention: {{event.payload.title}}",
+            "recipients": ["manager@example.com", "senior-dev@example.com"],
+            "channel": "slack"
+          }
+        },
+        {
+          "type": "escalate",
+          "params": {
+            "taskId": "{{event.payload.id}}",
+            "reason": "High priority task unassigned for extended period",
+            "level": "high"
+          }
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": false,
+        "stopOnFailure": false,
+        "maxRetries": 2
+      }
+    },
+    
+    {
+      "id": "task-completion-quality-check",
+      "name": "Task Completion Quality Gate",
+      "description": "Require quality review for high-complexity or critical tasks before marking as Done",
+      "enabled": true,
+      "priority": 15,
+      
+      "trigger": {
+        "eventType": "task.updated",
+        "conditions": [
+          {
+            "field": "status",
+            "operator": "equals",
+            "value": "Done"
+          },
+          {
+            "field": "complexity",
+            "operator": "in",
+            "value": ["high", "critical"]
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "update_task",
+          "params": {
+            "taskId": "{{event.payload.id}}",
+            "updates": {
+              "status": "Quality Review",
+              "qualityReviewRequired": true
+            }
+          }
+        },
+        {
+          "type": "notify",
+          "params": {
+            "message": "Quality review required for completed task: {{event.payload.title}}",
+            "recipients": ["qa@example.com", "senior-dev@example.com"],
+            "channel": "slack"
+          }
+        },
+        {
+          "type": "wait",
+          "params": {
+            "field": "status",
+            "operator": "equals",
+            "value": "Done",
+            "timeout": 86400000
+          }
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": false,
+        "stopOnFailure": true,
+        "maxRetries": 1
+      }
+    },
+    
+    {
+      "id": "agent-offline-handling",
+      "name": "Agent Offline Task Reassignment",
+      "description": "Reassign tasks from offline agents to available alternatives",
+      "enabled": true,
+      "priority": 20,
+      
+      "trigger": {
+        "eventType": "agent.updated",
+        "conditions": [
+          {
+            "field": "status",
+            "operator": "equals",
+            "value": "offline"
+          },
+          {
+            "field": "currentTaskId",
+            "operator": "not_equals",
+            "value": null
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "update_task",
+          "params": {
+            "taskId": "{{event.payload.currentTaskId}}",
+            "updates": {
+              "assignedAgentId": null,
+              "status": "To Do",
+              "reassignmentReason": "Original agent became offline"
+            }
+          }
+        },
+        {
+          "type": "assign_agent",
+          "params": {
+            "taskId": "{{event.payload.currentTaskId}}",
+            "priority": "High"
+          }
+        },
+        {
+          "type": "notify",
+          "params": {
+            "message": "Task reassigned due to agent {{event.payload.id}} going offline: {{event.payload.currentTaskId}}",
+            "recipients": ["dev-team@example.com"],
+            "channel": "slack"
+          }
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": true,
+        "stopOnFailure": false,
+        "maxRetries": 2
+      }
+    },
+    
+    {
+      "id": "task-timeout-handling",
+      "name": "Task Timeout and Escalation",
+      "description": "Handle tasks that exceed their estimated duration and require escalation",
+      "enabled": true,
+      "priority": 25,
+      
+      "trigger": {
+        "eventType": "task.updated",
+        "conditions": [
+          {
+            "field": "status",
+            "operator": "in",
+            "value": ["In Progress", "Blocked"]
+          },
+          {
+            "field": "estimatedDuration",
+            "operator": "not_equals",
+            "value": null
+          },
+          {
+            "field": "createdAt",
+            "operator": "lt",
+            "value": "{{now - (event.payload.estimatedDuration * 60000 * 1.5)}}"
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "update_task",
+          "params": {
+            "taskId": "{{event.payload.id}}",
+            "updates": {
+              "status": "Timeout",
+              "timeoutReason": "Task exceeded estimated duration by 50%"
+            }
+          }
+        },
+        {
+          "type": "escalate",
+          "params": {
+            "taskId": "{{event.payload.id}}",
+            "reason": "Task timeout: exceeded estimated duration",
+            "level": "medium"
+          }
+        },
+        {
+          "type": "notify",
+          "params": {
+            "message": "Task {{event.payload.title}} has exceeded estimated duration by 50%",
+            "recipients": ["manager@example.com"],
+            "channel": "email"
+          }
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": false,
+        "stopOnFailure": false,
+        "maxRetries": 1
+      }
+    },
+    
+    {
+      "id": "complex-task-decomposition",
+      "name": "Complex Task Subtask Creation",
+      "description": "Automatically create subtasks for complex, multi-step tasks",
+      "enabled": true,
+      "priority": 12,
+      
+      "trigger": {
+        "eventType": "task.created",
+        "conditions": [
+          {
+            "field": "complexity",
+            "operator": "equals",
+            "value": "high"
+          },
+          {
+            "field": "estimatedDuration",
+            "operator": "gt",
+            "value": 480
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "create_subtask",
+          "params": {
+            "parentId": "{{event.payload.id}}",
+            "title": "Requirements Analysis and Planning",
+            "description": "Analyze requirements, create technical specifications, and plan implementation approach",
+            "estimatedDuration": "{{event.payload.estimatedDuration * 0.2}}",
+            "complexity": "medium"
+          }
+        },
+        {
+          "type": "create_subtask",
+          "params": {
+            "parentId": "{{event.payload.id}}",
+            "title": "Implementation Phase",
+            "description": "Code development and core functionality implementation",
+            "estimatedDuration": "{{event.payload.estimatedDuration * 0.6}}",
+            "complexity": "high"
+          }
+        },
+        {
+          "type": "create_subtask",
+          "params": {
+            "parentId": "{{event.payload.id}}",
+            "title": "Testing and Quality Assurance",
+            "description": "Unit testing, integration testing, and code review",
+            "estimatedDuration": "{{event.payload.estimatedDuration * 0.2}}",
+            "complexity": "medium"
+          }
+        },
+        {
+          "type": "update_task",
+          "params": {
+            "taskId": "{{event.payload.id}}",
+            "updates": {
+              "status": "Planning",
+              "hasSubtasks": true
+            }
+          }
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": true,
+        "stopOnFailure": false,
+        "maxRetries": 1
+      }
+    },
+    
+    {
+      "id": "rate-limit-handling",
+      "name": "API Rate Limit Management",
+      "description": "Handle agent rate limiting by switching to fallback models or delaying tasks",
+      "enabled": true,
+      "priority": 8,
+      
+      "trigger": {
+        "eventType": "agent.updated",
+        "conditions": [
+          {
+            "field": "rateLimit.requestsPerMinute",
+            "operator": "gte",
+            "value": 18
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "update_agent",
+          "params": {
+            "agentId": "{{event.payload.id}}",
+            "updates": {
+              "status": "Rate Limited",
+              "rateLimitWarning": true
+            }
+          }
+        },
+        {
+          "type": "notify",
+          "params": {
+            "message": "Agent {{event.payload.id}} approaching rate limits ({{event.payload.rateLimit.requestsPerMinute}} RPM)",
+            "recipients": ["dev-team@example.com"],
+            "channel": "slack"
+          }
+        },
+        {
+          "type": "wait",
+          "params": {
+            "field": "agent.status",
+            "operator": "equals",
+            "value": "online",
+            "timeout": 300000
+          }
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": true,
+        "stopOnFailure": false,
+        "maxRetries": 3
+      }
+    },
+    
+    {
+      "id": "workflow-completion-notification",
+      "name": "Workflow Completion Notification",
+      "description": "Send notifications when multi-step workflows are completed",
+      "enabled": true,
+      "priority": 3,
+      
+      "trigger": {
+        "eventType": "task.updated",
+        "conditions": [
+          {
+            "field": "status",
+            "operator": "equals",
+            "value": "Done"
+          },
+          {
+            "field": "hasSubtasks",
+            "operator": "equals",
+            "value": true
+          },
+          {
+            "field": "subtasksCompleted",
+            "operator": "equals",
+            "value": true
+          }
+        ]
+      },
+      
+      "actions": [
+        {
+          "type": "notify",
+          "params": {
+            "message": "🎉 Workflow completed successfully: {{event.payload.title}}",
+            "recipients": ["stakeholders@example.com"],
+            "channel": "slack"
+          }
+        },
+        {
+          "type": "notify",
+          "params": {
+            "message": "Task {{event.payload.title}} has been completed with all subtasks finished",
+            "recipients": ["manager@example.com"],
+            "channel": "email"
+          }
+        },
+        {
+          "type": "analytics",
+          "params": {
+            "event": "workflow_completed",
+            "data": {
+              "taskId": "{{event.payload.id}}",
+              "duration": "{{event.payload.completedAt - event.payload.createdAt}}",
+              "subtasksCount": "{{event.payload.subtasksCount}}"
+            }
+          }
+        }
+      ],
+      
+      "flow": {
+        "continueOnSuccess": true,
+        "stopOnFailure": false,
+        "maxRetries": 1
+      }
+    }
+  ],
+  
+  "globalSettings": {
+    "defaultRetryDelay": 1000,
+    "maxRetryAttempts": 3,
+    "escalationTimeout": 86400000,
+    "notificationChannels": ["slack", "email"],
+    "timeZone": "UTC",
+    "loggingLevel": "info",
+    "ruleExecutionTimeout": 30000
+  },
+  
+  "dependencies": {
+    "requiredEvents": ["task.created", "task.updated", "agent.updated"],
+    "requiredActions": ["assign_agent", "update_task", "create_subtask", "notify", "escalate"],
+    "requiredCapabilities": ["taskAssignment", "notification", "escalation"]
+  }
+}

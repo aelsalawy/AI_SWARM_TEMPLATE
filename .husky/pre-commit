@@ -1,0 +1,7 @@
+# Lint gate: skip gracefully when eslint is not installed (pruned node_modules)
+if [ ! -x node_modules/.bin/eslint ]; then
+  echo "⚠  eslint missing from node_modules — skipping lint gate (run: npm install)"
+  exit 0
+fi
+
+npm run lint

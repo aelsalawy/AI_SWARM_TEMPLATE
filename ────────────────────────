@@ -1,0 +1,1132 @@
+[1mdiff --git a/package-lock.json b/package-lock.json[m
+[1mindex eb20068..07a57e7 100644[m
+[1m--- a/package-lock.json[m
+[1m+++ b/package-lock.json[m
+[36m@@ -21,6 +21,7 @@[m
+         "express": "^4.21.2",[m
+         "lucide-react": "^0.546.0",[m
+         "motion": "^12.38.0",[m
+[32m+[m[32m        "nodemailer": "^9.0.6",[m
+         "pg": "^8.21.0",[m
+         "prisma": "^7.8.0",[m
+         "react": "^19.0.0",[m
+[36m@@ -6475,6 +6476,15 @@[m
+         "node": ">=18"[m
+       }[m
+     },[m
+[32m+[m[32m    "node_modules/nodemailer": {[m
+[32m+[m[32m      "version": "9.0.6",[m
+[32m+[m[32m      "resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-9.0.6.tgz",[m
+[32m+[m[32m      "integrity": "sha512-IQUGFdhdGwI9+AWX+FpUt4DLmvFaOjTMEoneTIWX/RXxuy1TdenPwWrvFMSfLkPKl+HQEXWuSAxEMMbPYXtBmg==",[m
+[32m+[m[32m      "license": "MIT-0",[m
+[32m+[m[32m      "engines": {[m
+[32m+[m[32m        "node": ">=6.0.0"[m
+[32m+[m[32m      }[m
+[32m+[m[32m    },[m
+     "node_modules/object-assign": {[m
+       "version": "4.1.1",[m
+       "resolved": "https://registry.npmjs.org/object-assign/-/object-assign-4.1.1.tgz",[m
+[1mdiff --git a/package.json b/package.json[m
+[1mindex c9fd16f..c81090d 100644[m
+[1m--- a/package.json[m
+[1m+++ b/package.json[m
+[36m@@ -29,6 +29,7 @@[m
+     "express": "^4.21.2",[m
+     "lucide-react": "^0.546.0",[m
+     "motion": "^12.38.0",[m
+[32m+[m[32m    "nodemailer": "^9.0.6",[m
+     "pg": "^8.21.0",[m
+     "prisma": "^7.8.0",[m
+     "react": "^19.0.0",[m
+[1mdiff --git a/prisma/schema.prisma b/prisma/schema.prisma[m
+[1mindex 5fc7a55..45593d8 100644[m
+[1m--- a/prisma/schema.prisma[m
+[1m+++ b/prisma/schema.prisma[m
+[36m@@ -37,6 +37,9 @@[m [mmodel User {[m
+   resetTokenExpiry   DateTime?[m
+   twoFactorEnabled   Boolean       @default(false)[m
+   twoFactorSecret    String?[m
+[32m+[m[32m  emailVerified      Boolean       @default(false)[m
+[32m+[m[32m  verifyToken        String?       @unique[m
+[32m+[m[32m  verifyTokenExpiry  DateTime?[m
+   createdAt          DateTime      @default(now())[m
+   updatedAt          DateTime      @updatedAt[m
+   deletedAt          DateTime?[m
+[1mdiff --git a/server/index.ts b/server/index.ts[m
+[1mindex 5c59643..49e81ec 100644[m
+[1m--- a/server/index.ts[m
+[1m+++ b/server/index.ts[m
+[36m@@ -22,6 +22,8 @@[m [mimport triggerAgentRouter from './routes/trigger-agent';[m
+ import agentTriggerRouter from './routes/agent-trigger';[m
+ import agentChatsRouter from './routes/agent-chats';[m
+ import deploymentsRouter from './routes/deployments';[m
+[32m+[m[32mimport eventsRouter from './routes/events';[m
+[32m+[m[32mimport apiKeysRouter from './routes/api-keys';[m
+ [m
+ import usersRouter from './routes/users';[m
+ import { migrateFirebaseToPg } from './migration-handler';[m
+[36m@@ -34,6 +36,11 @@[m [mimport { Router } from 'express';[m
+ // Load environment variables[m
+ dotenv.config();[m
+ [m
+[32m+[m[32m// Build metadata for versioned health checks (P0-1).[m
+[32m+[m[32m// BUILD_TIMESTAMP is injected by the deploy pipeline; APP_VERSION is the release tag.[m
+[32m+[m[32mconst BUILD_TIMESTAMP = process.env.BUILD_TIMESTAMP || new Date().toISOString();[m
+[32m+[m[32mconst APP_VERSION = process.env.APP_VERSION || '0.0.0';[m
+[32m+[m
+ const app = express();[m
+ const PORT = process.env.PORT || 3001;[m
+ [m
+[36m@@ -75,6 +82,7 @@[m [mapp.use('/api', (req: Request, res: Response, next: NextFunction) => {[m
+   // Public endpoints (no auth required)[m
+   const publicPaths = [[m
+     '/health',[m
+[32m+[m[32m    '/events',[m
+     '/auth/login',[m
+     '/auth/register',[m
+     '/auth/refresh',[m
+[36m@@ -146,6 +154,8 @@[m [mapp.get('/api/health', async (_req: Request, res: Response) => {[m
+     prisma: prismaStatus,[m
+     agents: agentCount,[m
+     tasks: taskCount,[m
+[32m+[m[32m    buildTimestamp: BUILD_TIMESTAMP,[m
+[32m+[m[32m    version: APP_VERSION,[m
+   });[m
+ });[m
+ [m
+[36m@@ -165,6 +175,8 @@[m [mapp.use('/api/sprints', sprintsRouter);[m
+ app.use('/api/dispatcher', dispatcherRouter);[m
+ app.use('/api/workflow', workflowRouter);[m
+ app.use('/api/deployments', deploymentsRouter);[m
+[32m+[m[32mapp.use('/api/events', eventsRouter);[m
+[32m+[m[32mapp.use('/api/api-keys', apiKeysRouter);[m
+ app.use('/api/skills', skillsRouter);[m
+ app.use('/api/trigger-agent', triggerAgentRouter);[m
+ app.use('/api/agent-trigger', agentTriggerRouter);[m
+[1mdiff --git a/server/routes/users.ts b/server/routes/users.ts[m
+[1mindex b048b51..545f132 100644[m
+[1m--- a/server/routes/users.ts[m
+[1m+++ b/server/routes/users.ts[m
+[36m@@ -62,7 +62,10 @@[m [mrouter.use(async (req, res, next) => {[m
+ [m
+ /**[m
+  * GET /api/users[m
+[31m- * List all users (exclude soft-deleted)[m
+[32m+[m[32m * List users. Optional `deletedAt` query param:[m
+[32m+[m[32m *   - (default)  exclude soft-deleted users[m
+[32m+[m[32m *   - `only`     return ONLY soft-deleted users[m
+[32m+[m[32m *   - `all`      return all users including soft-deleted[m
+  */[m
+ router.get('/', async (req: Request, res: Response) => {[m
+   try {[m
+[36m@@ -71,10 +74,20 @@[m [mrouter.get('/', async (req: Request, res: Response) => {[m
+     res.setHeader('Pragma', 'no-cache');[m
+     res.setHeader('Expires', '0');[m
+ [m
+[32m+[m[32m    const { deletedAt } = req.query;[m
+[32m+[m
+[32m+[m[32m    // Build where clause based on filter[m
+[32m+[m[32m    let where: any = {};[m
+[32m+[m[32m    if (deletedAt === 'only') {[m
+[32m+[m[32m      where.deletedAt = { not: null };[m
+[32m+[m[32m    } else if (deletedAt === 'all') {[m
+[32m+[m[32m      // no filter — return everyone[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      where.deletedAt = null;  // default: exclude soft-deleted[m
+[32m+[m[32m    }[m
+[32m+[m
+     const users = await prisma.user.findMany({[m
+[31m-      where: {[m
+[31m-        deletedAt: null,  // Exclude soft-deleted users[m
+[31m-      },[m
+[32m+[m[32m      where,[m
+       select: {[m
+         id: true,[m
+         email: true,[m
+[36m@@ -82,6 +95,7 @@[m [mrouter.get('/', async (req: Request, res: Response) => {[m
+         lastName: true,[m
+         role: true,[m
+         status: true,[m
+[32m+[m[32m        deletedAt: true,[m
+         createdAt: true,[m
+         lastLogin: true,[m
+       },[m
+[36m@@ -95,6 +109,68 @@[m [mrouter.get('/', async (req: Request, res: Response) => {[m
+   }[m
+ });[m
+ [m
+[32m+[m[32m/**[m
+[32m+[m[32m * POST /api/users/:id/restore[m
+[32m+[m[32m * Restore a soft-deleted user — ATOMIC operation.[m
+[32m+[m[32m * Clears deletedAt, resets status to 'active', and revokes all refresh tokens[m
+[32m+[m[32m * in a single transaction (no partial-restore state).[m
+[32m+[m[32m *[m
+[32m+[m[32m * NOTE: Must be defined BEFORE the /:id routes so Express doesn't match[m
+[32m+[m[32m * "restore" as an :id parameter.[m
+[32m+[m[32m */[m
+[32m+[m[32mrouter.post('/:id/restore', async (req: Request, res: Response) => {[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const { id } = req.params;[m
+[32m+[m
+[32m+[m[32m    const user = await prisma.user.findUnique({[m
+[32m+[m[32m      where: { id },[m
+[32m+[m[32m      select: { id: true, deletedAt: true, email: true },[m
+[32m+[m[32m    });[m
+[32m+[m
+[32m+[m[32m    if (!user) {[m
+[32m+[m[32m      return res.status(404).json({ message: 'User not found' });[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    if (!user.deletedAt) {[m
+[32m+[m[32m      return res.status(400).json({ message: 'User is not deleted — nothing to restore' });[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const result = await prisma.$transaction(async (tx: any) => {[m
+[32m+[m[32m      const restored = await tx.user.update({[m
+[32m+[m[32m        where: { id },[m
+[32m+[m[32m        data: {[m
+[32m+[m[32m          deletedAt: null,[m
+[32m+[m[32m          status: 'active',[m
+[32m+[m[32m        },[m
+[32m+[m[32m        select: {[m
+[32m+[m[32m          id: true,[m
+[32m+[m[32m          email: true,[m
+[32m+[m[32m          firstName: true,[m
+[32m+[m[32m          lastName: true,[m
+[32m+[m[32m          role: true,[m
+[32m+[m[32m          status: true,[m
+[32m+[m[32m          deletedAt: true,[m
+[32m+[m[32m          createdAt: true,[m
+[32m+[m[32m          lastLogin: true,[m
+[32m+[m[32m        },[m
+[32m+[m[32m      });[m
+[32m+[m
+[32m+[m[32m      const revoked = await tx.refreshToken.updateMany({[m
+[32m+[m[32m        where: { userId: id, isRevoked: false },[m
+[32m+[m[32m        data: { isRevoked: true },[m
+[32m+[m[32m      });[m
+[32m+[m
+[32m+[m[32m      console.log(`[Users] Restored user ${id}, revoked ${revoked.count} tokens`);[m
+[32m+[m[32m      return restored;[m
+[32m+[m[32m    });[m
+[32m+[m
+[32m+[m[32m    res.json(result);[m
+[32m+[m[32m  } catch (error: any) {[m
+[32m+[m[32m    console.error('Error restoring user:', error);[m
+[32m+[m[32m    res.status(500).json({ message: 'Failed to restore user', error: error.message });[m
+[32m+[m[32m  }[m
+[32m+[m[32m});[m
+[32m+[m
+ /**[m
+  * GET /api/users/:id[m
+  * Get a specific user (exclude soft-deleted)[m
+[1mdiff --git a/src/App.tsx b/src/App.tsx[m
+[1mindex 95b165a..3566cf9 100644[m
+[1m--- a/src/App.tsx[m
+[1m+++ b/src/App.tsx[m
+[36m@@ -11,6 +11,8 @@[m [mimport ProjectsView from './components/ProjectsView';[m
+ import BugsView from './components/BugsView';[m
+ import GitHubWorkspace from './components/GitHubWorkspace';[m
+ import AdminPage from './components/AdminPage';[m
+[32m+[m[32mimport SprintAnalytics from './components/SprintAnalytics';[m
+[32m+[m[32mimport ApiKeyManagement from './components/ApiKeyManagement';[m
+ import ActivityFeed from './components/ActivityFeed';[m
+ import CreateTaskModal from './components/CreateTaskModal';[m
+ import CreateBugModal from './components/CreateBugModal';[m
+[36m@@ -67,6 +69,10 @@[m [mfunction AppContent() {[m
+         return <ErrorBoundary name="Bugs"><BugsView key="bugs" /></ErrorBoundary>;[m
+       case 'activity':[m
+         return <ErrorBoundary name="Activity"><ActivityFeed key="activity" /></ErrorBoundary>;[m
+[32m+[m[32m      case 'analytics':[m
+[32m+[m[32m        return <ErrorBoundary name="Sprint Analytics"><ProtectedRoute requiredRole="super_admin"><SprintAnalytics key="analytics" /></ProtectedRoute></ErrorBoundary>;[m
+[32m+[m[32m      case 'api-keys':[m
+[32m+[m[32m        return <ErrorBoundary name="API Keys"><ProtectedRoute requiredRole="super_admin"><ApiKeyManagement key="api-keys" /></ProtectedRoute></ErrorBoundary>;[m
+       case 'github':[m
+         return <ErrorBoundary name="GitHub"><GitHubWorkspace key="github" /></ErrorBoundary>;[m
+       case 'admin':[m
+[36m@@ -87,6 +93,8 @@[m [mfunction AppContent() {[m
+       case 'projects': return 'Projects';[m
+       case 'bugs': return 'Bugs & Issues';[m
+       case 'activity': return 'Activity Feed';[m
+[32m+[m[32m      case 'analytics': return 'Sprint Analytics';[m
+[32m+[m[32m      case 'api-keys': return 'API Keys';[m
+       case 'github': return 'GitHub Workspace';[m
+       case 'admin': return 'Admin Settings';[m
+       default: return 'Swarm Orchestrator';[m
+[1mdiff --git a/src/components/ActivityFeed.tsx b/src/components/ActivityFeed.tsx[m
+[1mindex c255cbf..b0800bf 100644[m
+[1m--- a/src/components/ActivityFeed.tsx[m
+[1m+++ b/src/components/ActivityFeed.tsx[m
+[36m@@ -4,6 +4,7 @@[m [mimport { cn } from '@/src/lib/utils';[m
+ import { Activity, RefreshCw, AlertCircle, FileText, Bug, CheckCircle2, Clock, Bot, FolderKanban, FlaskConical } from 'lucide-react';[m
+ import apiClient from '../lib/api-client';[m
+ import { useAuth } from '../contexts/AuthContext';[m
+[32m+[m[32mimport { useRealtime } from '../lib/useRealtime';[m
+ import type { AuditLog } from '../lib/types';[m
+ [m
+ const ACTION_ICONS: Record<string, React.ReactNode> = {[m
+[36m@@ -49,6 +50,7 @@[m [mexport default function ActivityFeed() {[m
+   const [logs, setLogs] = useState<AuditLog[]>([]);[m
+   const [loading, setLoading] = useState(true);[m
+   const [error, setError] = useState<string | null>(null);[m
+[32m+[m[32m  const [live, setLive] = useState(false);[m
+ [m
+   const fetchLogs = async () => {[m
+     try {[m
+[36m@@ -78,6 +80,24 @@[m [mexport default function ActivityFeed() {[m
+     }[m
+   }, [isAuthenticated]);[m
+ [m
+[32m+[m[32m  // P3-1: Live updates via SSE — map incoming event bus events to feed entries.[m
+[32m+[m[32m  useRealtime('*', (event) => {[m
+[32m+[m[32m    setLive(true);[m
+[32m+[m[32m    if (!event?.type) return;[m
+[32m+[m[32m    const [entityRaw] = event.type.split('.');[m
+[32m+[m[32m    const [actionWord] = event.type.split('.').slice(1);[m
+[32m+[m[32m    const entry: AuditLog = {[m
+[32m+[m[32m      id: event.id || `rt-${Date.now()}`,[m
+[32m+[m[32m      action: (actionWord || 'UPDATE').toUpperCase(),[m
+[32m+[m[32m      entityType: entityRaw || 'unknown',[m
+[32m+[m[32m      entityId: event.payload?.id || '',[m
+[32m+[m[32m      userId: event.payload?.updatedBy || event.payload?.ownerId || '',[m
+[32m+[m[32m      changes: event.payload ? { live: event.payload, via: 'realtime' } : null,[m
+[32m+[m[32m      createdAt: event.timestamp || new Date().toISOString(),[m
+[32m+[m[32m    };[m
+[32m+[m[32m    setLogs((prev) => [entry, ...prev].slice(0, 100));[m
+[32m+[m[32m  });[m
+[32m+[m
+   if (loading) {[m
+     return ([m
+       <div className="p-8 flex items-center justify-center">[m
+[36m@@ -122,6 +142,19 @@[m [mexport default function ActivityFeed() {[m
+             <h3 className="font-display font-bold text-slate-900">[m
+               Activity Feed ({logs.length})[m
+             </h3>[m
+[32m+[m[32m            {/* P3-1 live connection indicator */}[m
+[32m+[m[32m            <span[m
+[32m+[m[32m              className={cn([m
+[32m+[m[32m                'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider',[m
+[32m+[m[32m                live[m
+[32m+[m[32m                  ? 'bg-green-100 text-green-700'[m
+[32m+[m[32m                  : 'bg-slate-100 text-slate-500'[m
+[32m+[m[32m              )}[m
+[32m+[m[32m              title={live ? 'Live SSE stream connected' : 'Live stream inactive'}[m
+[32m+[m[32m            >[m
+[32m+[m[32m              <span className={cn('w-1.5 h-1.5 rounded-full', live ? 'bg-green-500 animate-pulse' : 'bg-slate-400')} />[m
+[32m+[m[32m              {live ? 'Live' : 'Polling'}[m
+[32m+[m[32m            </span>[m
+           </div>[m
+           <button[m
+             onClick={fetchLogs}[m
+[1mdiff --git a/src/components/AdminPage.tsx b/src/components/AdminPage.tsx[m
+[1mindex 13fe8b9..5b23126 100644[m
+[1m--- a/src/components/AdminPage.tsx[m
+[1m+++ b/src/components/AdminPage.tsx[m
+[36m@@ -5,7 +5,7 @@[m [mimport {[m
+   Shield, Users, Database, Activity, [m
+   RefreshCw, AlertTriangle, CheckCircle2,[m
+   Server, Wifi, HardDrive, ClipboardCheck,[m
+[31m-  UserPlus, Trash2, Edit, Mail, Key, User,[m
+[32m+[m[32m  UserPlus, Trash2, Edit, Mail, Key, User, Undo2,[m
+   Lock, Calendar, ShieldAlert[m
+ } from 'lucide-react';[m
+ import { useAuth } from '../contexts/AuthContext';[m
+[36m@@ -27,6 +27,7 @@[m [mexport default function AdminPage() {[m
+   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error'>('checking');[m
+   const [users, setUsers] = useState<UserType[]>([]);[m
+   const [usersLoading, setUsersLoading] = useState(false);[m
+[32m+[m[32m  const [userFilter, setUserFilter] = useState<'active' | 'deleted'>('active');[m
+   const [showAddUserModal, setShowAddUserModal] = useState(false);[m
+   const [activeSection, setActiveSection] = useState<'overview' | 'users'>('overview');[m
+ [m
+[36m@@ -72,7 +73,9 @@[m [mexport default function AdminPage() {[m
+     const loadUsers = async () => {[m
+       setUsersLoading(true);[m
+       try {[m
+[31m-        const usersData = await apiClient.users.list();[m
+[32m+[m[32m        const usersData = userFilter === 'deleted'[m
+[32m+[m[32m          ? await apiClient.users.list('only')[m
+[32m+[m[32m          : await apiClient.users.list();[m
+         if (!mounted) return;[m
+         setUsers(usersData);[m
+       } catch (err) {[m
+[36m@@ -86,7 +89,7 @@[m [mexport default function AdminPage() {[m
+     loadStats();[m
+     loadUsers();[m
+     return () => { mounted = false; };[m
+[31m-  }, [isAuthenticated]);[m
+[32m+[m[32m  }, [isAuthenticated, userFilter]);[m
+ [m
+   const handleAddUser = async (userData: {[m
+     email: string;[m
+[36m@@ -123,6 +126,23 @@[m [mexport default function AdminPage() {[m
+     }[m
+   };[m
+ [m
+[32m+[m[32m  const handleRestoreUser = async (userId: string) => {[m
+[32m+[m[32m    if (!confirm('Restore this user? They will need to log in again.')) return;[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      await apiClient.users.restore(userId);[m
+[32m+[m[32m      // Reload users (deleted filter will now exclude the restored user)[m
+[32m+[m[32m      const usersData = userFilter === 'deleted'[m
+[32m+[m[32m        ? await apiClient.users.list('only')[m
+[32m+[m[32m        : await apiClient.users.list();[m
+[32m+[m[32m      setUsers(usersData);[m
+[32m+[m[32m      setSuccessMessage('User restored successfully');[m
+[32m+[m[32m      setTimeout(() => setSuccessMessage(null), 3000);[m
+[32m+[m[32m    } catch (err) {[m
+[32m+[m[32m      console.error('Failed to restore user:', err);[m
+[32m+[m[32m      setError(err instanceof Error ? err.message : 'Failed to restore user');[m
+[32m+[m[32m    }[m
+[32m+[m[32m  };[m
+[32m+[m
+   if (!isAuthenticated) {[m
+     return ([m
+       <div className="flex items-center justify-center h-full">[m
+[36m@@ -288,13 +308,39 @@[m [mexport default function AdminPage() {[m
+                 <h2 className="text-xl font-bold text-slate-900">User Management</h2>[m
+                 <p className="text-sm text-slate-500 mt-1">Manage system users and permissions</p>[m
+               </div>[m
+[31m-              <button[m
+[31m-                onClick={() => setShowAddUserModal(true)}[m
+[31m-                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"[m
+[31m-              >[m
+[31m-                <UserPlus className="w-4 h-4" />[m
+[31m-                Add User[m
+[31m-              </button>[m
+[32m+[m[32m              <div className="flex items-center gap-2">[m
+[32m+[m[32m                <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">[m
+[32m+[m[32m                  <button[m
+[32m+[m[32m                    onClick={() => setUserFilter('active')}[m
+[32m+[m[32m                    className={cn([m
+[32m+[m[32m                      "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",[m
+[32m+[m[32m                      userFilter === 'active'[m
+[32m+[m[32m                        ? "bg-white text-slate-900 shadow-sm"[m
+[32m+[m[32m                        : "text-slate-500 hover:text-slate-700"[m
+[32m+[m[32m                    )}[m
+[32m+[m[32m                  >[m
+[32m+[m[32m                    Active[m
+[32m+[m[32m                  </button>[m
+[32m+[m[32m                  <button[m
+[32m+[m[32m                    onClick={() => setUserFilter('deleted')}[m
+[32m+[m[32m                    className={cn([m
+[32m+[m[32m                      "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",[m
+[32m+[m[32m                      userFilter === 'deleted'[m
+[32m+[m[32m                        ? "bg-white text-slate-900 shadow-sm"[m
+[32m+[m[32m                        : "text-slate-500 hover:text-slate-700"[m
+[32m+[m[32m                    )}[m
+[32m+[m[32m                  >[m
+[32m+[m[32m                    Deleted[m
+[32m+[m[32m                  </button>[m
+[32m+[m[32m                </div>[m
+[32m+[m[32m                <button[m
+[32m+[m[32m                  onClick={() => setShowAddUserModal(true)}[m
+[32m+[m[32m                  className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"[m
+[32m+[m[32m                >[m
+[32m+[m[32m                  <UserPlus className="w-4 h-4" />[m
+[32m+[m[32m                  Add User[m
+[32m+[m[32m                </button>[m
+[32m+[m[32m              </div>[m
+             </div>[m
+ [m
+             {/* Users list */}[m
+[36m@@ -326,7 +372,10 @@[m [mexport default function AdminPage() {[m
+                     </tr>[m
+                   ) : ([m
+                     users.map((user) => ([m
+[31m-                      <tr key={user.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">[m
+[32m+[m[32m                      <tr key={user.id} className={cn([m
+[32m+[m[32m                        "border-b border-slate-100 last:border-0 hover:bg-slate-50",[m
+[32m+[m[32m                        user.deletedAt && "opacity-60"[m
+[32m+[m[32m                      )}>[m
+                         <td className="px-6 py-4">[m
+                           <div className="flex items-center gap-3">[m
+                             <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">[m
+[36m@@ -365,14 +414,24 @@[m [mexport default function AdminPage() {[m
+                           {user.lastLogin ? new Date(user.lastLogin as any).toLocaleDateString() : 'Never'}[m
+                         </td>[m
+                         <td className="px-6 py-4 text-right">[m
+[31m-                          <button[m
+[31m-                            onClick={() => handleDeleteUser(user.id)}[m
+[31m-                            disabled={user.id === currentUser?.id}[m
+[31m-                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"[m
+[31m-                            title="Delete user"[m
+[31m-                          >[m
+[31m-                            <Trash2 className="w-4 h-4" />[m
+[31m-                          </button>[m
+[32m+[m[32m                          {user.deletedAt ? ([m
+[32m+[m[32m                            <button[m
+[32m+[m[32m                              onClick={() => handleRestoreUser(user.id)}[m
+[32m+[m[32m                              className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"[m
+[32m+[m[32m                              title="Restore user"[m
+[32m+[m[32m                            >[m
+[32m+[m[32m                              <Undo2 className="w-4 h-4" />[m
+[32m+[m[32m                            </button>[m
+[32m+[m[32m                          ) : ([m
+[32m+[m[32m                            <button[m
+[32m+[m[32m                              onClick={() => handleDeleteUser(user.id)}[m
+[32m+[m[32m                              disabled={user.id === currentUser?.id}[m
+[32m+[m[32m                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"[m
+[32m+[m[32m                              title="Delete user"[m
+[32m+[m[32m                            >[m
+[32m+[m[32m                              <Trash2 className="w-4 h-4" />[m
+[32m+[m[32m                            </button>[m
+[32m+[m[32m                          )}[m
+                         </td>[m
+                       </tr>[m
+                     ))[m
+[1mdiff --git a/src/components/AgentView.tsx b/src/components/AgentView.tsx[m
+[1mindex 79c6d4d..d40dec7 100644[m
+[1m--- a/src/components/AgentView.tsx[m
+[1m+++ b/src/components/AgentView.tsx[m
+[36m@@ -1,13 +1,14 @@[m
+[31m-import React, { useState, useEffect } from 'react';[m
+[32m+[m[32mimport React, { useState, useEffect, useMemo } from 'react';[m
+ import { motion, AnimatePresence } from 'motion/react';[m
+ import {[m
+   Bot, Zap, Wifi, WifiOff, Clock, CheckCircle2, AlertCircle,[m
+[31m-  RefreshCw, Plus, Edit2, Trash2, X, Save[m
+[32m+[m[32m  RefreshCw, Plus, Edit2, Trash2, X, Save,[m
+[32m+[m[32m  Gauge, Activity, ShieldCheck, Sparkles, UserCheck, Loader2[m
+ } from 'lucide-react';[m
+ import { cn } from '@/src/lib/utils';[m
+ import apiClient from '../lib/api-client';[m
+ import { useAuth } from '../contexts/AuthContext';[m
+[31m-import type { Agent } from '../lib/types';[m
+[32m+[m[32mimport type { Agent, Task } from '../lib/types';[m
+ [m
+ export default function AgentView() {[m
+   const { isAuthenticated } = useAuth();[m
+[36m@@ -26,6 +27,96 @@[m [mexport default function AgentView() {[m
+     status: 'offline'[m
+   });[m
+ [m
+[32m+[m[32m  // P2-2: Workload dashboard + auto-assignment state[m
+[32m+[m[32m  const [tasks, setTasks] = useState<Task[]>([]);[m
+[32m+[m[32m  const [autoAssigning, setAutoAssigning] = useState(false);[m
+[32m+[m[32m  const [autoAssignResult, setAutoAssignResult] = useState<string | null>(null);[m
+[32m+[m[32m  const [showAutoAssign, setShowAutoAssign] = useState(false);[m
+[32m+[m[32m  const [selectedTaskId, setSelectedTaskId] = useState<string>('');[m
+[32m+[m
+[32m+[m[32m  // Fetch tasks for auto-assignment[m
+[32m+[m[32m  const fetchTasks = async () => {[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const list = await apiClient.tasks.list();[m
+[32m+[m[32m      setTasks(list);[m
+[32m+[m[32m    } catch (err) {[m
+[32m+[m[32m      console.error('Failed to fetch tasks:', err);[m
+[32m+[m[32m    }[m
+[32m+[m[32m  };[m
+[32m+[m
+[32m+[m[32m  useEffect(() => {[m
+[32m+[m[32m    if (isAuthenticated) {[m
+[32m+[m[32m      fetchTasks();[m
+[32m+[m[32m    }[m
+[32m+[m[32m  }, [isAuthenticated]);[m
+[32m+[m
+[32m+[m[32m  // ---- P2-2: Workload metrics ----[m
+[32m+[m[32m  const workload = useMemo(() => {[m
+[32m+[m[32m    const loaded = agents.filter(a => (a.activeTasks as number) > 0 || a.status === 'busy');[m
+[32m+[m[32m    const idle = agents.filter(a => !((a.activeTasks as number) > 0) && a.status !== 'busy');[m
+[32m+[m[32m    const totalThroughput = agents.reduce((sum, a) => sum + ((a as any).throughput as number || 0), 0);[m
+[32m+[m[32m    const avgCompletion = agents.length > 0[m
+[32m+[m[32m      ? Math.round(agents.reduce((sum, a) => sum + ((a.completionRate as number) || 0), 0) / agents.length * 100)[m
+[32m+[m[32m      : 0;[m
+[32m+[m[32m    const reliable = agents.filter(a => ((a as any).reliability as number || 0) >= 0.9).length;[m
+[32m+[m[32m    return { loaded, idle, totalThroughput, avgCompletion, reliable };[m
+[32m+[m[32m  }, [agents]);[m
+[32m+[m
+[32m+[m[32m  // Auto-assign: pick least-loaded agent matching required skills[m
+[32m+[m[32m  const runAutoAssign = async () => {[m
+[32m+[m[32m    if (!selectedTaskId) {[m
+[32m+[m[32m      setAutoAssignResult('Please select a task to assign.');[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    setAutoAssigning(true);[m
+[32m+[m[32m    setAutoAssignResult(null);[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const task = tasks.find(t => t.id === selectedTaskId);[m
+[32m+[m[32m      if (!task) {[m
+[32m+[m[32m        setAutoAssignResult('Task not found.');[m
+[32m+[m[32m        return;[m
+[32m+[m[32m      }[m
+[32m+[m[32m      // Required skills from task (or empty)[m
+[32m+[m[32m      const requiredSkills: string[] = (task as any).skills || [];[m
+[32m+[m[32m      // Candidates: agents whose skills overlap required skills (or all if none required)[m
+[32m+[m[32m      let candidates = agents.filter(a => {[m
+[32m+[m[32m        if (requiredSkills.length === 0) return true;[m
+[32m+[m[32m        const agentSkills: string[] = (a as any).skills || [];[m
+[32m+[m[32m        return requiredSkills.some(s => agentSkills.includes(s));[m
+[32m+[m[32m      });[m
+[32m+[m[32m      if (candidates.length === 0) candidates = agents; // fallback to any agent[m
+[32m+[m[32m      // Sort by least loaded (activeTasks asc, then status idle first)[m
+[32m+[m[32m      candidates.sort((a, b) => {[m
+[32m+[m[32m        const aLoad = (a.activeTasks as number) || 0;[m
+[32m+[m[32m        const bLoad = (b.activeTasks as number) || 0;[m
+[32m+[m[32m        if (aLoad !== bLoad) return aLoad - bLoad;[m
+[32m+[m[32m        const aIdle = a.status === 'idle' || a.status === 'online' ? 0 : 1;[m
+[32m+[m[32m        const bIdle = b.status === 'idle' || b.status === 'online' ? 0 : 1;[m
+[32m+[m[32m        return aIdle - bIdle;[m
+[32m+[m[32m      });[m
+[32m+[m[32m      const chosen = candidates[0];[m
+[32m+[m[32m      if (!chosen) {[m
+[32m+[m[32m        setAutoAssignResult('No agents available to assign.');[m
+[32m+[m[32m        return;[m
+[32m+[m[32m      }[m
+[32m+[m[32m      // Assign the task to the chosen agent[m
+[32m+[m[32m      await apiClient.tasks.update(selectedTaskId, { assignedAgentId: chosen.id });[m
+[32m+[m[32m      // Increment the agent's active task count[m
+[32m+[m[32m      await apiClient.agents.update(chosen.id, {[m
+[32m+[m[32m        activeTasks: ((chosen.activeTasks as number) || 0) + 1,[m
+[32m+[m[32m        status: 'busy',[m
+[32m+[m[32m      });[m
+[32m+[m[32m      setAutoAssignResult(`Assigned "${task.title || task.id}" to ${chosen.emoji || '🤖'} ${chosen.name || chosen.id} (${(chosen.activeTasks as number) || 0} active → ${((chosen.activeTasks as number) || 0) + 1}).`);[m
+[32m+[m[32m      await fetchAgents();[m
+[32m+[m[32m      await fetchTasks();[m
+[32m+[m[32m    } catch (err) {[m
+[32m+[m[32m      console.error('Auto-assign failed:', err);[m
+[32m+[m[32m      setAutoAssignResult('Auto-assignment failed. See console.');[m
+[32m+[m[32m    } finally {[m
+[32m+[m[32m      setAutoAssigning(false);[m
+[32m+[m[32m    }[m
+[32m+[m[32m  };[m
+[32m+[m
+   const fetchAgents = async () => {[m
+     try {[m
+       setLoading(true);[m
+[36m@@ -216,6 +307,108 @@[m [mexport default function AgentView() {[m
+         </div>[m
+       </div>[m
+ [m
+[32m+[m[32m      {/* P2-2: Workload Dashboard */}[m
+[32m+[m[32m      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">[m
+[32m+[m[32m        <div className="glass-panel p-4 rounded-xl flex flex-col border border-slate-200 bg-white shadow-sm">[m
+[32m+[m[32m          <div className="flex justify-between items-start mb-2">[m
+[32m+[m[32m            <div className="p-2 bg-amber-50 rounded-lg">[m
+[32m+[m[32m              <Gauge className="w-4 h-4 text-amber-600" />[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Loaded</p>[m
+[32m+[m[32m          <h4 className="font-display text-2xl font-bold text-amber-600">{workload.loaded.length}</h4>[m
+[32m+[m[32m          <p className="text-[10px] text-slate-400 mt-1">agents with active tasks</p>[m
+[32m+[m[32m        </div>[m
+[32m+[m
+[32m+[m[32m        <div className="glass-panel p-4 rounded-xl flex flex-col border border-slate-200 bg-white shadow-sm">[m
+[32m+[m[32m          <div className="flex justify-between items-start mb-2">[m
+[32m+[m[32m            <div className="p-2 bg-green-50 rounded-lg">[m
+[32m+[m[32m              <Activity className="w-4 h-4 text-green-600" />[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Idle</p>[m
+[32m+[m[32m          <h4 className="font-display text-2xl font-bold text-green-600">{workload.idle.length}</h4>[m
+[32m+[m[32m          <p className="text-[10px] text-slate-400 mt-1">available for work</p>[m
+[32m+[m[32m        </div>[m
+[32m+[m
+[32m+[m[32m        <div className="glass-panel p-4 rounded-xl flex flex-col border border-slate-200 bg-white shadow-sm">[m
+[32m+[m[32m          <div className="flex justify-between items-start mb-2">[m
+[32m+[m[32m            <div className="p-2 bg-blue-50 rounded-lg">[m
+[32m+[m[32m              <CheckCircle2 className="w-4 h-4 text-blue-600" />[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Avg Completion</p>[m
+[32m+[m[32m          <h4 className="font-display text-2xl font-bold text-blue-600">{workload.avgCompletion}%</h4>[m
+[32m+[m[32m          <p className="text-[10px] text-slate-400 mt-1">across all agents</p>[m
+[32m+[m[32m        </div>[m
+[32m+[m
+[32m+[m[32m        <div className="glass-panel p-4 rounded-xl flex flex-col border border-slate-200 bg-white shadow-sm">[m
+[32m+[m[32m          <div className="flex justify-between items-start mb-2">[m
+[32m+[m[32m            <div className="p-2 bg-indigo-50 rounded-lg">[m
+[32m+[m[32m              <ShieldCheck className="w-4 h-4 text-indigo-600" />[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Reliable</p>[m
+[32m+[m[32m          <h4 className="font-display text-2xl font-bold text-indigo-600">{workload.reliable}/{agents.length}</h4>[m
+[32m+[m[32m          <p className="text-[10px] text-slate-400 mt-1">reliability ≥ 90%</p>[m
+[32m+[m[32m        </div>[m
+[32m+[m[32m      </div>[m
+[32m+[m
+[32m+[m[32m      {/* P2-2: Auto-Assignment Panel */}[m
+[32m+[m[32m      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">[m
+[32m+[m[32m        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">[m
+[32m+[m[32m          <div className="flex items-center gap-2">[m
+[32m+[m[32m            <Sparkles className="w-4 h-4 text-purple-600" />[m
+[32m+[m[32m            <h3 className="font-display font-bold text-slate-900">Auto-Assignment</h3>[m
+[32m+[m[32m            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">least-loaded · skill-matched</span>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <button[m
+[32m+[m[32m            onClick={() => setShowAutoAssign(prev => !prev)}[m
+[32m+[m[32m            className="text-xs font-bold text-purple-600 hover:text-purple-800 transition-colors"[m
+[32m+[m[32m          >[m
+[32m+[m[32m            {showAutoAssign ? 'Hide' : 'Assign Task'}[m
+[32m+[m[32m          </button>[m
+[32m+[m[32m        </div>[m
+[32m+[m[32m        {showAutoAssign && ([m
+[32m+[m[32m          <div className="p-6">[m
+[32m+[m[32m            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">[m
+[32m+[m[32m              <div className="flex-1 w-full">[m
+[32m+[m[32m                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">[m
+[32m+[m[32m                  Select Task to Assign[m
+[32m+[m[32m                </label>[m
+[32m+[m[32m                <select[m
+[32m+[m[32m                  value={selectedTaskId}[m
+[32m+[m[32m                  onChange={(e) => setSelectedTaskId(e.target.value)}[m
+[32m+[m[32m                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"[m
+[32m+[m[32m                >[m
+[32m+[m[32m                  <option value="">— Choose a task —</option>[m
+[32m+[m[32m                  {tasks[m
+[32m+[m[32m                    .filter(t => t.status !== 'Done')[m
+[32m+[m[32m                    .map(t => ([m
+[32m+[m[32m                      <option key={t.id} value={t.id}>[m
+[32m+[m[32m                        {t.title || t.id} {t.assignedAgentId ? '(assigned)' : '(unassigned)'}[m
+[32m+[m[32m                      </option>[m
+[32m+[m[32m                    ))}[m
+[32m+[m[32m                </select>[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m              <button[m
+[32m+[m[32m                onClick={runAutoAssign}[m
+[32m+[m[32m                disabled={autoAssigning}[m
+[32m+[m[32m                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 transition-all disabled:opacity-50"[m
+[32m+[m[32m              >[m
+[32m+[m[32m                {autoAssigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}[m
+[32m+[m[32m                {autoAssigning ? 'Assigning...' : 'Auto-Assign'}[m
+[32m+[m[32m              </button>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m            {autoAssignResult && ([m
+[32m+[m[32m              <div className="mt-4 px-4 py-3 bg-purple-50 border border-purple-200 rounded-lg text-xs font-medium text-purple-800">[m
+[32m+[m[32m                {autoAssignResult}[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m            )}[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m        )}[m
+[32m+[m[32m      </div>[m
+[32m+[m
+       {/* Agent List */}[m
+       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">[m
+         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">[m
+[36m@@ -284,6 +477,21 @@[m [mexport default function AgentView() {[m
+                     <Bot className="w-3.5 h-3.5 text-blue-500" />[m
+                     <span>{(agent.activeTasks as number) || 0} active</span>[m
+                   </div>[m
+[32m+[m[32m                  {/* P2-2: Workload bar */}[m
+[32m+[m[32m                  <div className="hidden md:flex items-center gap-1.5">[m
+[32m+[m[32m                    <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">[m
+[32m+[m[32m                      <div[m
+[32m+[m[32m                        className={cn([m
+[32m+[m[32m                          "h-full rounded-full transition-all",[m
+[32m+[m[32m                          ((agent.activeTasks as number) || 0) >= 3 ? "bg-red-500" : ((agent.activeTasks as number) || 0) >= 1 ? "bg-amber-500" : "bg-green-500"[m
+[32m+[m[32m                        )}[m
+[32m+[m[32m                        style={{ width: `${Math.min(((agent.activeTasks as number) || 0) * 25, 100)}%` }}[m
+[32m+[m[32m                      />[m
+[32m+[m[32m                    </div>[m
+[32m+[m[32m                    <span className="text-[9px] font-bold text-slate-400 uppercase">[m
+[32m+[m[32m                      {((agent.activeTasks as number) || 0) >= 3 ? 'loaded' : ((agent.activeTasks as number) || 0) >= 1 ? 'busy' : 'idle'}[m
+[32m+[m[32m                    </span>[m
+[32m+[m[32m                  </div>[m
+                 </div>[m
+ [m
+                 {/* Actions */}[m
+[1mdiff --git a/src/components/Sidebar.tsx b/src/components/Sidebar.tsx[m
+[1mindex 2b78f71..052d5dd 100644[m
+[1m--- a/src/components/Sidebar.tsx[m
+[1m+++ b/src/components/Sidebar.tsx[m
+[36m@@ -13,7 +13,9 @@[m [mimport {[m
+   FolderKanban,[m
+   Activity,[m
+   Bot,[m
+[31m-  FileText[m
+[32m+[m[32m  FileText,[m
+[32m+[m[32m  BarChart3,[m
+[32m+[m[32m  KeyRound[m
+ } from 'lucide-react';[m
+ import { cn } from '@/src/lib/utils';[m
+ import { motion, AnimatePresence } from 'motion/react';[m
+[36m@@ -35,6 +37,8 @@[m [mconst navItems = [[m
+   { id: 'projects', label: 'Projects', icon: FolderKanban },[m
+   { id: 'bugs', label: 'Bugs', icon: Bug },[m
+   { id: 'activity', label: 'Activity', icon: Activity },[m
+[32m+[m[32m  { id: 'analytics', label: 'Analytics', icon: BarChart3 },[m
+[32m+[m[32m  { id: 'api-keys', label: 'API Keys', icon: KeyRound },[m
+   { id: 'admin', label: 'Admin', icon: Settings },[m
+ ];[m
+ [m
+[1mdiff --git a/src/components/TestCenter.tsx b/src/components/TestCenter.tsx[m
+[1mindex cd8b2e2..536f441 100644[m
+[1m--- a/src/components/TestCenter.tsx[m
+[1m+++ b/src/components/TestCenter.tsx[m
+[36m@@ -1,4 +1,4 @@[m
+[31m-import React, { useState, useEffect, useCallback } from 'react';[m
+[32m+[m[32mimport React, { useState, useEffect, useCallback, useMemo } from 'react';[m
+ import { motion } from 'motion/react';[m
+ import { [m
+   History, [m
+[36m@@ -12,14 +12,18 @@[m [mimport {[m
+   Play,[m
+   RefreshCw,[m
+   X,[m
+[31m-  Trash2[m
+[32m+[m[32m  Trash2,[m
+[32m+[m[32m  CalendarRange,[m
+[32m+[m[32m  TrendingUp,[m
+[32m+[m[32m  Target,[m
+[32m+[m[32m  Layers[m
+ } from 'lucide-react';[m
+ import { cn } from '@/src/lib/utils';[m
+ import { useAuth } from '../contexts/AuthContext';[m
+ import { searchNav } from '../lib/search-nav';[m
+ import apiClient from '../lib/api-client';[m
+ import { useProject } from '../lib/ProjectContext';[m
+[31m-import type { TestRun } from '../lib/types';[m
+[32m+[m[32mimport type { TestRun, Sprint } from '../lib/types';[m
+ [m
+ // Status filter options[m
+ const STATUS_FILTERS = ['Passed', 'Failed', 'Skipped', 'Pending'] as const;[m
+[36m@@ -45,6 +49,11 @@[m [mexport default function TestCenter() {[m
+     new Set(STATUS_FILTERS)[m
+   );[m
+ [m
+[32m+[m[32m  // Sprint-based test plans (P1-6)[m
+[32m+[m[32m  const [sprints, setSprints] = useState<Sprint[]>([]);[m
+[32m+[m[32m  const [expandedSprintId, setExpandedSprintId] = useState<string | null>(null);[m
+[32m+[m[32m  const [trendView, setTrendView] = useState<'sprint' | 'day'>('sprint');[m
+[32m+[m
+   // Subscribe to search navigation events[m
+   useEffect(() => {[m
+     const unsub = searchNav.subscribe((payload) => {[m
+[36m@@ -65,12 +74,14 @@[m [mexport default function TestCenter() {[m
+       apiClient.requirements.list().then(setAllRequirements).catch(() => {});[m
+       apiClient.bugs.list().then(setAllBugs).catch(() => {});[m
+       apiClient.agents.list().then(setAllAgents).catch(() => {});[m
+[32m+[m[32m      apiClient.sprints.list(projectId || undefined).then(setSprints).catch(() => {});[m
+     } else {[m
+       setAllRequirements([]);[m
+       setAllBugs([]);[m
+       setAllAgents([]);[m
+[32m+[m[32m      setSprints([]);[m
+     }[m
+[31m-  }, [isAuthenticated]);[m
+[32m+[m[32m  }, [isAuthenticated, projectId]);[m
+ [m
+   const [editingRunLinks, setEditingRunLinks] = useState<string | null>(null);[m
+ [m
+[36m@@ -125,6 +136,81 @@[m [mexport default function TestCenter() {[m
+     return showAllRuns ? byStatus : byStatus.slice(0, 10);[m
+   })();[m
+ [m
+[32m+[m[32m  // ---- P1-6: Pass-rate trend computation ----[m
+[32m+[m[32m  // Group runs by sprint (via sprintId field if present, else by date bucket)[m
+[32m+[m[32m  const passRateTrend = useMemo(() => {[m
+[32m+[m[32m    const buckets: { label: string; total: number; passed: number; failed: number; skipped: number }[] = [];[m
+[32m+[m[32m    const bucketMap = new Map<string, typeof buckets[number]>();[m
+[32m+[m
+[32m+[m[32m    const addToBucket = (label: string, run: TestRun) => {[m
+[32m+[m[32m      let b = bucketMap.get(label);[m
+[32m+[m[32m      if (!b) {[m
+[32m+[m[32m        b = { label, total: 0, passed: 0, failed: 0, skipped: 0 };[m
+[32m+[m[32m        bucketMap.set(label, b);[m
+[32m+[m[32m        buckets.push(b);[m
+[32m+[m[32m      }[m
+[32m+[m[32m      b.total += 1;[m
+[32m+[m[32m      if (run.status === 'Passed') b.passed += 1;[m
+[32m+[m[32m      else if (run.status === 'Failed') b.failed += 1;[m
+[32m+[m[32m      else b.skipped += 1;[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    if (trendView === 'sprint') {[m
+[32m+[m[32m      // Bucket by sprint name when a run references a sprint, else 'Unplanned'[m
+[32m+[m[32m      const sprintById = new Map(sprints.map(s => [s.id, s.name]));[m
+[32m+[m[32m      for (const run of runs) {[m
+[32m+[m[32m        if (projectId && run.projectId && run.projectId !== projectId) continue;[m
+[32m+[m[32m        const sprintId = (run as any).sprintId as string | undefined;[m
+[32m+[m[32m        const label = sprintId && sprintById.get(sprintId) ? sprintById.get(sprintId)! : 'Unplanned';[m
+[32m+[m[32m        addToBucket(label, run);[m
+[32m+[m[32m      }[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      // Bucket by calendar day[m
+[32m+[m[32m      for (const run of runs) {[m
+[32m+[m[32m        if (projectId && run.projectId && run.projectId !== projectId) continue;[m
+[32m+[m[32m        const ts = resolveDate(run.createdAt);[m
+[32m+[m[32m        const label = ts ? ts.toISOString().slice(0, 10) : 'Unknown';[m
+[32m+[m[32m        addToBucket(label, run);[m
+[32m+[m[32m      }[m
+[32m+[m[32m      // Sort chronologically[m
+[32m+[m[32m      buckets.sort((a, b) => a.label.localeCompare(b.label));[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    return buckets.map(b => ({[m
+[32m+[m[32m      ...b,[m
+[32m+[m[32m      passRate: b.total > 0 ? Math.round((b.passed / b.total) * 100) : 0,[m
+[32m+[m[32m    }));[m
+[32m+[m[32m  }, [runs, sprints, projectId, trendView]);[m
+[32m+[m
+[32m+[m[32m  // Overall pass rate across the current project's runs[m
+[32m+[m[32m  const overallPassRate = useMemo(() => {[m
+[32m+[m[32m    const relevant = runs.filter(r => !projectId || !r.projectId || r.projectId === projectId);[m
+[32m+[m[32m    const passed = relevant.filter(r => r.status === 'Passed').length;[m
+[32m+[m[32m    return relevant.length > 0 ? Math.round((passed / relevant.length) * 100) : 0;[m
+[32m+[m[32m  }, [runs, projectId]);[m
+[32m+[m
+[32m+[m[32m  // Test plans per sprint: map each sprint to its runs[m
+[32m+[m[32m  const sprintPlans = useMemo(() => {[m
+[32m+[m[32m    return sprints.map(sprint => {[m
+[32m+[m[32m      const sprintRuns = runs.filter(r =>[m
+[32m+[m[32m        (r as any).sprintId === sprint.id ||[m
+[32m+[m[32m        (!(r as any).sprintId && !projectId)[m
+[32m+[m[32m      );[m
+[32m+[m[32m      const passed = sprintRuns.filter(r => r.status === 'Passed').length;[m
+[32m+[m[32m      const failed = sprintRuns.filter(r => r.status === 'Failed').length;[m
+[32m+[m[32m      const skipped = sprintRuns.filter(r => r.status === 'Skipped' || r.status === 'Pending').length;[m
+[32m+[m[32m      return {[m
+[32m+[m[32m        sprint,[m
+[32m+[m[32m        runs: sprintRuns,[m
+[32m+[m[32m        passed,[m
+[32m+[m[32m        failed,[m
+[32m+[m[32m        skipped,[m
+[32m+[m[32m        total: sprintRuns.length,[m
+[32m+[m[32m        passRate: sprintRuns.length > 0 ? Math.round((passed / sprintRuns.length) * 100) : 0,[m
+[32m+[m[32m      };[m
+[32m+[m[32m    });[m
+[32m+[m[32m  }, [sprints, runs, projectId]);[m
+[32m+[m
+   // Parse duration string like "5m 30s" to milliseconds[m
+   const parseDurationToMs = (dur: string | undefined): number => {[m
+     if (!dur) return 0;[m
+[36m@@ -249,6 +335,154 @@[m [mexport default function TestCenter() {[m
+       className="h-full overflow-y-auto"[m
+     >[m
+     <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6">[m
+[32m+[m[32m      {/* P1-6: Pass-Rate Trends + Test Plans per Sprint */}[m
+[32m+[m[32m      <div className="grid grid-cols-12 gap-6">[m
+[32m+[m[32m        {/* Pass-Rate Trend Chart */}[m
+[32m+[m[32m        <div className="col-span-12 lg:col-span-7 glass-panel rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm">[m
+[32m+[m[32m          <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3 bg-white">[m
+[32m+[m[32m            <div className="flex items-center gap-2">[m
+[32m+[m[32m              <TrendingUp className="w-4 h-4 text-blue-600" />[m
+[32m+[m[32m              <h4 className="font-display text-base font-bold text-slate-900 uppercase tracking-tight">Pass-Rate Trends</h4>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">[m
+[32m+[m[32m              <button[m
+[32m+[m[32m                onClick={() => setTrendView('sprint')}[m
+[32m+[m[32m                className={cn([m
+[32m+[m[32m                  "px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",[m
+[32m+[m[32m                  trendView === 'sprint' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"[m
+[32m+[m[32m                )}[m
+[32m+[m[32m              >[m
+[32m+[m[32m                <span className="flex items-center gap-1"><CalendarRange className="w-3 h-3" /> Sprint</span>[m
+[32m+[m[32m              </button>[m
+[32m+[m[32m              <button[m
+[32m+[m[32m                onClick={() => setTrendView('day')}[m
+[32m+[m[32m                className={cn([m
+[32m+[m[32m                  "px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",[m
+[32m+[m[32m                  trendView === 'day' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"[m
+[32m+[m[32m                )}[m
+[32m+[m[32m              >[m
+[32m+[m[32m                <span className="flex items-center gap-1"><Layers className="w-3 h-3" /> Day</span>[m
+[32m+[m[32m              </button>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <div className="p-4 sm:p-6">[m
+[32m+[m[32m            {/* Overall pass rate summary */}[m
+[32m+[m[32m            <div className="flex items-center gap-4 mb-5">[m
+[32m+[m[32m              <div className="flex items-center gap-2">[m
+[32m+[m[32m                <Target className="w-4 h-4 text-green-600" />[m
+[32m+[m[32m                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Overall Pass Rate</span>[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m              <div className="flex items-center gap-2">[m
+[32m+[m[32m                <div className="w-24 h-2.5 bg-slate-100 rounded-full overflow-hidden">[m
+[32m+[m[32m                  <div[m
+[32m+[m[32m                    className={cn([m
+[32m+[m[32m                      "h-full rounded-full transition-all duration-500",[m
+[32m+[m[32m                      overallPassRate >= 80 ? "bg-green-500" : overallPassRate >= 50 ? "bg-amber-500" : "bg-red-500"[m
+[32m+[m[32m                    )}[m
+[32m+[m[32m                    style={{ width: `${overallPassRate}%` }}[m
+[32m+[m[32m                  />[m
+[32m+[m[32m                </div>[m
+[32m+[m[32m                <span className="text-sm font-bold text-slate-900">{overallPassRate}%</span>[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m            </div>[m
+[32m+[m
+[32m+[m[32m            {passRateTrend.length === 0 ? ([m
+[32m+[m[32m              <div className="py-10 text-center">[m
+[32m+[m[32m                <TrendingUp className="w-10 h-10 text-slate-200 mx-auto mb-3" />[m
+[32m+[m[32m                <p className="text-sm text-slate-400 italic">No test runs yet to compute pass-rate trends.</p>[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m            ) : ([m
+[32m+[m[32m              <div className="space-y-3">[m
+[32m+[m[32m                {passRateTrend.map((b, i) => ([m
+[32m+[m[32m                  <div key={i} className="flex items-center gap-3">[m
+[32m+[m[32m                    <div className="w-28 flex-shrink-0 text-right">[m
+[32m+[m[32m                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate block">{b.label}</span>[m
+[32m+[m[32m                    </div>[m
+[32m+[m[32m                    <div className="flex-1 h-5 bg-slate-50 rounded-md overflow-hidden flex">[m
+[32m+[m[32m                      <div[m
+[32m+[m[32m                        className="h-full bg-green-500 transition-all duration-500"[m
+[32m+[m[32m                        style={{ width: `${b.passRate}%` }}[m
+[32m+[m[32m                        title={`${b.passRate}% passed`}[m
+[32m+[m[32m                      />[m
+[32m+[m[32m                      <div[m
+[32m+[m[32m                        className="h-full bg-red-400 transition-all duration-500"[m
+[32m+[m[32m                        style={{ width: `${b.total > 0 ? (b.failed / b.total) * 100 : 0}%` }}[m
+[32m+[m[32m                        title={`${b.failed} failed`}[m
+[32m+[m[32m                      />[m
+[32m+[m[32m                    </div>[m
+[32m+[m[32m                    <div className="w-24 flex-shrink-0 text-left">[m
+[32m+[m[32m                      <span className="text-[10px] font-bold text-slate-600">{b.passRate}%</span>[m
+[32m+[m[32m                      <span className="text-[9px] text-slate-400 ml-1">({b.passed}/{b.total})</span>[m
+[32m+[m[32m                    </div>[m
+[32m+[m[32m                  </div>[m
+[32m+[m[32m                ))}[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m            )}[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m        </div>[m
+[32m+[m
+[32m+[m[32m        {/* Test Plans per Sprint */}[m
+[32m+[m[32m        <div className="col-span-12 lg:col-span-5 glass-panel rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm">[m
+[32m+[m[32m          <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center gap-2 bg-white">[m
+[32m+[m[32m            <CalendarRange className="w-4 h-4 text-indigo-600" />[m
+[32m+[m[32m            <h4 className="font-display text-base font-bold text-slate-900 uppercase tracking-tight">Test Plans per Sprint</h4>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m          <div className="p-4 sm:p-6 max-h-[320px] overflow-y-auto">[m
+[32m+[m[32m            {sprintPlans.length === 0 ? ([m
+[32m+[m[32m              <div className="py-8 text-center">[m
+[32m+[m[32m                <CalendarRange className="w-10 h-10 text-slate-200 mx-auto mb-3" />[m
+[32m+[m[32m                <p className="text-sm text-slate-400 italic">No sprints defined for this project yet.</p>[m
+[32m+[m[32m                <p className="text-xs text-slate-300 mt-1">Create a sprint to organize test plans.</p>[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m            ) : ([m
+[32m+[m[32m              <div className="space-y-3">[m
+[32m+[m[32m                {sprintPlans.map(({ sprint, total, passed, failed, skipped, passRate }) => ([m
+[32m+[m[32m                  <div key={sprint.id} className="border border-slate-100 rounded-xl overflow-hidden">[m
+[32m+[m[32m                    <button[m
+[32m+[m[32m                      onClick={() => setExpandedSprintId(expandedSprintId === sprint.id ? null : sprint.id!)}[m
+[32m+[m[32m                      className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors"[m
+[32m+[m[32m                    >[m
+[32m+[m[32m                      <div className="flex items-center gap-2 min-w-0">[m
+[32m+[m[32m                        <ChevronRight className={cn("w-4 h-4 text-slate-400 transition-transform", expandedSprintId === sprint.id && "rotate-90")} />[m
+[32m+[m[32m                        <div className="min-w-0">[m
+[32m+[m[32m                          <p className="text-sm font-bold text-slate-900 truncate">{sprint.name}</p>[m
+[32m+[m[32m                          <p className="text-[10px] text-slate-400">{sprint.status} · {total} runs</p>[m
+[32m+[m[32m                        </div>[m
+[32m+[m[32m                      </div>[m
+[32m+[m[32m                      <div className="flex items-center gap-2 flex-shrink-0">[m
+[32m+[m[32m                        <span className={cn([m
+[32m+[m[32m                          "px-2 py-0.5 text-[10px] font-bold rounded-full",[m
+[32m+[m[32m                          passRate >= 80 ? "bg-green-100 text-green-700" : passRate >= 50 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-600"[m
+[32m+[m[32m                        )}>[m
+[32m+[m[32m                          {passRate}%[m
+[32m+[m[32m                        </span>[m
+[32m+[m[32m                      </div>[m
+[32m+[m[32m                    </button>[m
+[32m+[m[32m                    {expandedSprintId === sprint.id && ([m
+[32m+[m[32m                      <div className="px-4 pb-3 pt-1 border-t border-slate-50">[m
+[32m+[m[32m                        <div className="flex gap-3 text-[10px] font-bold mb-2">[m
+[32m+[m[32m                          <span className="text-green-600">{passed} passed</span>[m
+[32m+[m[32m                          <span className="text-red-500">{failed} failed</span>[m
+[32m+[m[32m                          <span className="text-amber-500">{skipped} skipped</span>[m
+[32m+[m[32m                        </div>[m
+[32m+[m[32m                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden flex">[m
+[32m+[m[32m                          <div className="h-full bg-green-500" style={{ width: `${total > 0 ? (passed / total) * 100 : 0}%` }} />[m
+[32m+[m[32m                          <div className="h-full bg-red-400" style={{ width: `${total > 0 ? (failed / total) * 100 : 0}%` }} />[m
+[32m+[m[32m                          <div className="h-full bg-amber-300" style={{ width: `${total > 0 ? (skipped / total) * 100 : 0}%` }} />[m
+[32m+[m[32m                        </div>[m
+[32m+[m[32m                        {sprint.goal && ([m
+[32m+[m[32m                          <p className="text-[10px] text-slate-400 mt-2 italic">Goal: {sprint.goal}</p>[m
+[32m+[m[32m                        )}[m
+[32m+[m[32m                      </div>[m
+[32m+[m[32m                    )}[m
+[32m+[m[32m                  </div>[m
+[32m+[m[32m                ))}[m
+[32m+[m[32m              </div>[m
+[32m+[m[32m            )}[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m        </div>[m
+[32m+[m[32m      </div>[m
+[32m+[m
+       <div className="grid grid-cols-12 gap-6">[m
+         {/* Test Run History */}[m
+         <div className="col-span-12 lg:col-span-12 glass-panel rounded-2xl overflow-hidden flex flex-col min-h-[500px] border border-slate-200 bg-white shadow-sm">[m
+[1mdiff --git a/src/lib/api-client.ts b/src/lib/api-client.ts[m
+[1mindex 348daed..4786c6d 100644[m
+[1m--- a/src/lib/api-client.ts[m
+[1m+++ b/src/lib/api-client.ts[m
+[36m@@ -631,14 +631,19 @@[m [mconst AgentTriggerAPI = {[m
+ [m
+ // Users API[m
+ const UsersAPI = {[m
+[31m-  list: async (): Promise<User[]> => {[m
+[31m-    return apiJson('/users');[m
+[32m+[m[32m  list: async (deletedAt?: 'only' | 'all'): Promise<User[]> => {[m
+[32m+[m[32m    const query = deletedAt ? `?deletedAt=${deletedAt}` : '';[m
+[32m+[m[32m    return apiJson(`/users${query}`);[m
+   },[m
+ [m
+   get: async (id: string): Promise<User> => {[m
+     return apiJson(`/users/${id}`);[m
+   },[m
+ [m
+[32m+[m[32m  restore: async (id: string): Promise<User> => {[m
+[32m+[m[32m    return apiJson(`/users/${id}/restore`, { method: 'POST' });[m
+[32m+[m[32m  },[m
+[32m+[m
+   create: async (userData: {[m
+     email: string;[m
+     password: string;[m
+[36m@@ -694,6 +699,38 @@[m [mconst AgentChatsAPI = {[m
+   },[m
+ };[m
+ [m
+[32m+[m[32m// API Keys API (P3-4)[m
+[32m+[m[32minterface ApiKeySummary {[m
+[32m+[m[32m  id: string;[m
+[32m+[m[32m  name: string;[m
+[32m+[m[32m  prefix: string;[m
+[32m+[m[32m  masked: string;[m
+[32m+[m[32m  createdAt: string;[m
+[32m+[m[32m  lastUsedAt?: string | null;[m
+[32m+[m[32m  revoked: boolean;[m
+[32m+[m[32m  revokedAt?: string | null;[m
+[32m+[m[32m  createdBy: string;[m
+[32m+[m[32m  key?: string; // full secret, only present in create response[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mconst ApiKeysAPI = {[m
+[32m+[m[32m  list: async (): Promise<ApiKeySummary[]> => apiJson('/api-keys'),[m
+[32m+[m[32m  create: async (name: string): Promise<ApiKeySummary> =>[m
+[32m+[m[32m    apiJson('/api-keys', {[m
+[32m+[m[32m      method: 'POST',[m
+[32m+[m[32m      body: JSON.stringify({ name }),[m
+[32m+[m[32m    }),[m
+[32m+[m[32m  revoke: async (id: string): Promise<ApiKeySummary> =>[m
+[32m+[m[32m    apiJson(`/api-keys/${id}/revoke`, { method: 'POST' }),[m
+[32m+[m[32m  delete: async (id: string): Promise<void> => {[m
+[32m+[m[32m    const response = await apiFetch(`/api-keys/${id}`, { method: 'DELETE' });[m
+[32m+[m[32m    if (!response.ok) {[m
+[32m+[m[32m      const errorData = await response.json().catch(() => ({ message: response.statusText }));[m
+[32m+[m[32m      throw new Error(errorData.message || `API Error ${response.status}`);[m
+[32m+[m[32m    }[m
+[32m+[m[32m  },[m
+[32m+[m[32m};[m
+[32m+[m
+ // Export all APIs[m
+ export const apiClient = {[m
+   auth: AuthAPI,[m
+[36m@@ -709,6 +746,7 @@[m [mexport const apiClient = {[m
+   skills: SkillsAPI,[m
+   agentTrigger: AgentTriggerAPI,[m
+   agentChats: AgentChatsAPI,[m
+[32m+[m[32m  apiKeys: ApiKeysAPI,[m
+ };[m
+ [m
+ export default apiClient;[m
+[1mdiff --git a/src/lib/types.ts b/src/lib/types.ts[m
+[1mindex 6f29d5a..a1b69a5 100644[m
+[1m--- a/src/lib/types.ts[m
+[1m+++ b/src/lib/types.ts[m
+[36m@@ -25,6 +25,7 @@[m [mexport interface User {[m
+   createdAt: Date | unknown;[m
+   updatedAt?: Date | unknown;[m
+   lastLogin?: Date | unknown;[m
+[32m+[m[32m  deletedAt?: Date | unknown | null;[m
+ }[m
+ [m
+ // ---------------------------------------------------------------------------[m

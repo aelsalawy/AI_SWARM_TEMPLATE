@@ -1,0 +1,208 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(data) {
+      return isSignedIn() && data.ownerId == request.auth.uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Task Validation
+    function isValidTask(data) {
+      return data.title is string && data.title.size() <= 200 &&
+             data.status in ['To Do', 'In Progress', 'Review', 'Done'] &&
+             data.priority in ['Low', 'Medium', 'High', 'Urgent'] &&
+             data.ownerId == request.auth.uid &&
+             data.keys().hasAll(['title', 'status', 'priority', 'ownerId']);
+    }
+
+    // Project Validation
+    function isValidProject(data) {
+      return data.name is string && data.name.size() <= 200 &&
+             data.status in ['Active', 'Archived'] &&
+             data.ownerId == request.auth.uid &&
+             data.keys().hasAll(['name', 'status', 'ownerId']);
+    }
+
+    // Sprint Validation
+    function isValidSprint(data) {
+      return data.name is string && data.name.size() <= 200 &&
+             data.projectId is string &&
+             data.goal is string &&
+             data.goal.size() <= 1000 &&
+             data.status in ['Planning', 'Active', 'Completed', 'Cancelled'] &&
+             data.ownerId == request.auth.uid &&
+             data.keys().hasAll(['name', 'projectId', 'goal', 'status', 'ownerId']);
+    }
+
+    match /tasks/{taskId} {
+      allow get: if isSignedIn() && isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      
+      allow create: if isSignedIn() && isValidId(taskId) && isValidTask(incoming()) && 
+                    incoming().createdAt == request.time;
+      
+      allow update: if isSignedIn() && isOwner(existing()) && isValidTask(incoming()) &&
+                    incoming().ownerId == existing().ownerId &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time;
+                    
+      allow delete: if isSignedIn() && isOwner(existing());
+    }
+
+    // Project Collection
+    match /projects/{projectId} {
+      allow get: if isSignedIn() && isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      
+      allow create: if isSignedIn() && isValidId(projectId) && isValidProject(incoming()) &&
+                    incoming().createdAt == request.time;
+      
+      allow update: if isSignedIn() && isOwner(existing()) && isValidProject(incoming()) &&
+                    incoming().ownerId == existing().ownerId &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time;
+      
+      allow delete: if isSignedIn() && isOwner(existing());
+    }
+
+    // Sprint Collection
+    match /sprints/{sprintId} {
+      allow get: if isSignedIn() && isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      
+      allow create: if isSignedIn() && isValidSprint(incoming());
+      
+      allow update: if isSignedIn() && isOwner(existing()) && isValidSprint(incoming()) &&
+                    incoming().ownerId == existing().ownerId;
+      
+      allow delete: if isSignedIn() && isOwner(existing());
+    }
+
+    // Runs Validation
+    function isValidRun(data) {
+      return data.status in ['Passed', 'Failed', 'Skipped', 'Pending'] &&
+             data.ownerId == request.auth.uid;
+    }
+
+    match /runs/{runId} {
+      allow read: if isSignedIn() && isOwner(resource.data);
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidRun(incoming());
+      allow update: if isSignedIn() && isOwner(existing()) &&
+                    incoming().ownerId == existing().ownerId;
+      allow delete: if isSignedIn() && isOwner(existing());
+    }
+
+    // Bugs Validation
+    function isValidBug(data) {
+      return data.title is string && data.title.size() <= 200 &&
+             data.status in ['Open', 'In Progress', 'Resolved', 'Closed'] &&
+             data.priority in ['Low', 'Medium', 'High', 'Critical'] &&
+             data.ownerId == request.auth.uid;
+    }
+
+    match /bugs/{bugId} {
+      allow get: if isSignedIn() && isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidBug(incoming());
+      allow update: if isSignedIn() && isOwner(existing()) &&
+                    incoming().ownerId == existing().ownerId;
+      allow delete: if isSignedIn() && isOwner(existing());
+
+      // Bug comments sub-collection
+      match /comments/{commentId} {
+        allow get: if isSignedIn();
+        allow list: if isSignedIn();
+        allow create: if isSignedIn() &&
+                      ((incoming().text is string && incoming().text.size() > 0) ||
+                       (incoming().body is string && incoming().body.size() > 0)) &&
+                      incoming().authorId is string &&
+                      incoming().authorName is string;
+        allow update: if isSignedIn() &&
+                      incoming().authorId == existing().authorId;
+        allow delete: if isSignedIn() &&
+                      existing().authorId == request.auth.uid;
+      }
+    }
+
+    // Repo Validation
+    match /repos/{repoId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // User Validation
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && userId == request.auth.uid;
+    }
+
+    // Agents Collection - read by signed-in users, writes by owner or server
+    match /agents/{agentId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Test Cases Collection
+    match /test_cases/{testCaseId} {
+      allow get: if isSignedIn() && isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(testCaseId);
+      allow update: if isSignedIn() && isOwner(existing());
+      allow delete: if isSignedIn() && isOwner(existing());
+    }
+
+    // Deployments Collection
+    match /deployments/{deployId} {
+      allow read: if isSignedIn() && isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn();
+    }
+
+    // Requirements Collection
+    function isValidRequirement(data) {
+      return data.title is string && data.title.size() <= 200 &&
+             data.ownerId == request.auth.uid &&
+             data.keys().hasAll(['title', 'ownerId']);
+    }
+
+    match /requirements/{reqId} {
+      allow get: if isSignedIn() && isOwner(existing());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidRequirement(incoming());
+      allow update: if isSignedIn() && isOwner(existing()) &&
+                    incoming().ownerId == existing().ownerId;
+      allow delete: if isSignedIn() && isOwner(existing());
+    }
+
+    // Audit Log - read by signed-in users only, writes only from server
+    match /audit_log/{entryId} {
+      allow read: if isSignedIn();
+      allow write: if false; // only server writes
+    }
+  }
+}
