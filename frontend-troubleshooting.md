@@ -95,7 +95,7 @@ systemctl restart caddy
 
 ```bash
 # Test API directly (works)
-curl -H "X-Agent-Key: e5b1beed-[REDACTED-T1][REVOKED-2026-09-08]" http://127.0.0.1:3001/api/tasks
+curl -H "X-Agent-Key: [REDACTED]" http://127.0.0.1:3001/api/tasks
 
 # Test without auth (should fail)
 curl http://127.0.0.1:3001/api/tasks

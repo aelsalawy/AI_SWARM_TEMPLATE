@@ -134,7 +134,7 @@ These files still use Firebase but are either utility scripts or advanced featur
 - **Action Required:** Change password after first login
 
 **Agent API Key:**
-- Key: `e5b1beed-[REDACTED-T1][REVOKED-2026-09-08]`
+- Key: `[REDACTED]`
 - Header: `X-Agent-Key`
 - Identity: `X-Agent-ID` (optional, defaults to `agent:system`)
 

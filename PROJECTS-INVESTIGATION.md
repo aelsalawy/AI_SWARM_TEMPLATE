@@ -39,10 +39,10 @@ Projects might still be in Firebase, not migrated to PostgreSQL
 
 ```bash
 # Test 1: Check if projects endpoint returns data
-curl -s -H "X-Agent-Key: e5b1beed-[REDACTED-T1][REVOKED-2026-09-08]" https://alm.swarmbuzz.online/api/projects
+curl -s -H "X-Agent-Key: [REDACTED]" https://alm.swarmbuzz.online/api/projects
 
 # Test 2: Check if tasks filter by project works
-curl -s -H "X-Agent-Key: e5b1beed-[REDACTED-T1][REVOKED-2026-09-08]" "https://alm.swarmbuzz.online/api/tasks?projectId=ANY_PROJECT_ID"
+curl -s -H "X-Agent-Key: [REDACTED]" "https://alm.swarmbuzz.online/api/tasks?projectId=ANY_PROJECT_ID"
 ```
 
 ## 🛠️ Run the Project Checker
