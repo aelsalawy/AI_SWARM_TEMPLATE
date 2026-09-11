@@ -4,11 +4,21 @@ A complete orchestration system for managing AI agents as a workforce. This tool
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### 🪄 Easy Setup (Recommended)
+
+The easiest way to get the system running is using the deployment wizard. It will guide you through the configuration of your database, gateway, and OAuth secrets:
+
+```bash
+node deploy.mjs
+```
+
+### Manual Installation
+
+#### Prerequisites
 - **Node.js** (v18+)
 - **PostgreSQL** (v14+)
 
-### Installation
+#### Installation
 1. **Clone the repo:**
    ```bash
    git clone <your-repo-url>
@@ -28,7 +38,7 @@ A complete orchestration system for managing AI agents as a workforce. This tool
 
 4. **Database Initialization:**
    ```bash
-   npx prisma migrate dev --name init
+   npx prisma db push
    ```
 
 5. **Run the application:**
