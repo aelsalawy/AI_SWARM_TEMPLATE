@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import { Timestamp } from 'firebase-admin/firestore';
 import type { Task, Agent, Bug } from '@/lib/types';
 
 /**
@@ -24,7 +23,7 @@ export type EventType =
 export interface Event<T = any> {
   type: string;
   payload: T;
-  timestamp: Timestamp;
+  timestamp: Date;
   source: string;
   id: string;
 }
@@ -67,7 +66,7 @@ class EventBus extends EventEmitter {
     const event: Event<T> = {
       type,
       payload,
-      timestamp: Timestamp.now(),
+      timestamp: new Date(),
       source,
       id
     };
